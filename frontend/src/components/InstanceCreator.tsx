@@ -1,8 +1,7 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Smartphone } from 'lucide-react';
+import { Smartphone, Loader2 } from 'lucide-react';
 
 interface InstanceCreatorProps {
   onInstanceCreated: (instanceId: string) => void;
@@ -49,59 +48,60 @@ export function InstanceCreator({ onInstanceCreated }: InstanceCreatorProps) {
   };
   
   return (
-    <Card className="w-full max-w-md">
-      <CardHeader>
-        <div className="flex items-center gap-2">
-          <Smartphone className="w-6 h-6" />
-          <CardTitle>Create Virtual Android</CardTitle>
-        </div>
-        <CardDescription>
-          Configure and launch a new Android phone instance
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div>
-          <label className="block text-sm font-medium mb-2">RAM Memory</label>
+    <div className="w-full max-w-md">
+      <div className="space-y-4">
+        <div className="space-y-2">
+          <label className="block text-sm font-medium text-white">RAM Memory</label>
           <Select value={ramGb} onValueChange={setRamGb}>
-            <SelectTrigger>
+            <SelectTrigger className="bg-white/10 border-white/20 text-white">
               <SelectValue placeholder="Select RAM" />
             </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="2">2 GB</SelectItem>
-              <SelectItem value="4">4 GB (Recommended)</SelectItem>
-              <SelectItem value="8">8 GB</SelectItem>
+            <SelectContent className="bg-gray-900 border-white/20">
+              <SelectItem value="2" className="text-white hover:bg-white/10">2 GB</SelectItem>
+              <SelectItem value="4" className="text-white hover:bg-white/10">4 GB (Recommended)</SelectItem>
+              <SelectItem value="8" className="text-white hover:bg-white/10">8 GB</SelectItem>
             </SelectContent>
           </Select>
         </div>
         
-        <div>
-          <label className="block text-sm font-medium mb-2">ROM Storage</label>
+        <div className="space-y-2">
+          <label className="block text-sm font-medium text-white">ROM Storage</label>
           <Select value={romGb} onValueChange={setRomGb}>
-            <SelectTrigger>
+            <SelectTrigger className="bg-white/10 border-white/20 text-white">
               <SelectValue placeholder="Select ROM" />
             </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="16">16 GB</SelectItem>
-              <SelectItem value="32">32 GB (Recommended)</SelectItem>
-              <SelectItem value="64">64 GB</SelectItem>
+            <SelectContent className="bg-gray-900 border-white/20">
+              <SelectItem value="16" className="text-white hover:bg-white/10">16 GB</SelectItem>
+              <SelectItem value="32" className="text-white hover:bg-white/10">32 GB (Recommended)</SelectItem>
+              <SelectItem value="64" className="text-white hover:bg-white/10">64 GB</SelectItem>
             </SelectContent>
           </Select>
         </div>
         
         {error && (
-          <div className="text-sm text-red-500 bg-red-50 p-3 rounded">
-            {error}
+          <div className="p-3 rounded-lg bg-red-500/20 border border-red-500/30 animate-in slide-in-from-top-2 duration-300">
+            <p className="text-sm text-red-200">{error}</p>
           </div>
         )}
         
         <Button 
           onClick={handleCreate} 
           disabled={loading} 
-          className="w-full"
+          className="w-full bg-gradient-to-r from-purple-500 to-blue-500 hover:from-purple-600 hover:to-blue-600 text-white border-0 shadow-lg shadow-purple-500/30 transition-all duration-200 hover:shadow-xl disabled:opacity-50"
         >
-          {loading ? 'Creating...' : 'Create Android Phone'}
+          {loading ? (
+            <>
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              Creating...
+            </>
+          ) : (
+            <>
+              <Smartphone className="w-4 h-4 mr-2" />
+              Create Android Phone
+            </>
+          )}
         </Button>
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }

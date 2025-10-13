@@ -90,77 +90,94 @@ export function UserManagement() {
   
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center p-8">
-        <Loader2 className="w-8 h-8 animate-spin" />
+      <div className="flex flex-col items-center justify-center p-16">
+        <Loader2 className="w-12 h-12 animate-spin text-white mb-4" />
+        <p className="text-white/70">Loading users...</p>
       </div>
     );
   }
   
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold">User Management</h2>
-        <Button onClick={() => setShowCreateForm(!showCreateForm)}>
+        <h2 className="text-2xl font-bold text-white">User Management</h2>
+        <Button 
+          onClick={() => setShowCreateForm(!showCreateForm)}
+          className="bg-gradient-to-r from-purple-500 to-blue-500 hover:from-purple-600 hover:to-blue-600 text-white border-0 shadow-lg shadow-purple-500/30 transition-all duration-200 hover:shadow-xl hover:scale-105"
+        >
           <UserPlus className="w-4 h-4 mr-2" />
           Create User
         </Button>
       </div>
       
       {showCreateForm && (
-        <Card className="p-6">
-          <h3 className="text-lg font-semibold mb-4">Create New User</h3>
+        <Card className="p-6 backdrop-blur-xl bg-white/10 border-white/20 animate-in fade-in slide-in-from-top-4 duration-500">
+          <h3 className="text-lg font-semibold mb-4 text-white">Create New User</h3>
           <form onSubmit={handleCreateUser} className="space-y-4">
-            <div>
-              <Label htmlFor="username">Username</Label>
+            <div className="space-y-2">
+              <Label htmlFor="username" className="text-white text-sm font-medium">Username</Label>
               <Input
                 id="username"
                 value={newUser.username}
                 onChange={(e) => setNewUser({ ...newUser, username: e.target.value })}
+                className="bg-white/10 border-white/20 text-white placeholder:text-white/40 focus:border-purple-400 focus:ring-purple-400/20"
                 required
               />
             </div>
             
-            <div>
-              <Label htmlFor="email">Email</Label>
+            <div className="space-y-2">
+              <Label htmlFor="email" className="text-white text-sm font-medium">Email</Label>
               <Input
                 id="email"
                 type="email"
                 value={newUser.email}
                 onChange={(e) => setNewUser({ ...newUser, email: e.target.value })}
+                className="bg-white/10 border-white/20 text-white placeholder:text-white/40 focus:border-purple-400 focus:ring-purple-400/20"
                 required
               />
             </div>
             
-            <div>
-              <Label htmlFor="password">Password</Label>
+            <div className="space-y-2">
+              <Label htmlFor="password" className="text-white text-sm font-medium">Password</Label>
               <Input
                 id="password"
                 type="password"
                 value={newUser.password}
                 onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
+                className="bg-white/10 border-white/20 text-white placeholder:text-white/40 focus:border-purple-400 focus:ring-purple-400/20"
                 required
               />
             </div>
             
-            <div>
-              <Label htmlFor="role">Role</Label>
+            <div className="space-y-2">
+              <Label htmlFor="role" className="text-white text-sm font-medium">Role</Label>
               <Select
                 value={newUser.role}
                 onValueChange={(value) => setNewUser({ ...newUser, role: value })}
               >
-                <SelectTrigger>
+                <SelectTrigger className="bg-white/10 border-white/20 text-white">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="user">User</SelectItem>
-                  <SelectItem value="admin">Admin</SelectItem>
+                <SelectContent className="bg-gray-900 border-white/20">
+                  <SelectItem value="user" className="text-white hover:bg-white/10">User</SelectItem>
+                  <SelectItem value="admin" className="text-white hover:bg-white/10">Admin</SelectItem>
                 </SelectContent>
               </Select>
             </div>
             
-            <div className="flex gap-2">
-              <Button type="submit">Create</Button>
-              <Button type="button" variant="outline" onClick={() => setShowCreateForm(false)}>
+            <div className="flex gap-2 pt-2">
+              <Button 
+                type="submit"
+                className="bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 text-white border-0"
+              >
+                Create
+              </Button>
+              <Button 
+                type="button" 
+                variant="outline" 
+                onClick={() => setShowCreateForm(false)}
+                className="bg-white/10 border-white/20 text-white hover:bg-white/20"
+              >
                 Cancel
               </Button>
             </div>
@@ -169,20 +186,30 @@ export function UserManagement() {
       )}
       
       <div className="grid gap-4">
-        {users.map((user) => (
-          <Card key={user.id} className="p-4">
+        {users.map((user, index) => (
+          <Card 
+            key={user.id} 
+            className="p-6 backdrop-blur-xl bg-white/10 border-white/20 hover:bg-white/15 transition-all duration-300 hover:shadow-lg animate-in fade-in slide-in-from-bottom-4"
+            style={{ animationDelay: `${index * 100}ms` }}
+          >
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="font-semibold">{user.username}</h3>
-                <p className="text-sm text-gray-500">{user.email}</p>
-                <p className="text-xs text-gray-400">
-                  Role: {user.role} | Created: {new Date(user.created_at).toLocaleDateString()}
-                </p>
+                <h3 className="font-semibold text-white text-lg">{user.username}</h3>
+                <p className="text-sm text-white/70">{user.email}</p>
+                <div className="flex gap-3 mt-2">
+                  <span className={`text-xs px-2 py-1 rounded ${user.role === 'admin' ? 'bg-purple-500/20 border border-purple-500/30 text-purple-200' : 'bg-blue-500/20 border border-blue-500/30 text-blue-200'}`}>
+                    {user.role}
+                  </span>
+                  <span className="text-xs text-white/50">
+                    Created: {new Date(user.created_at).toLocaleDateString()}
+                  </span>
+                </div>
               </div>
               <Button
                 variant="destructive"
                 size="sm"
                 onClick={() => handleDeleteUser(user.id)}
+                className="bg-red-500/20 border border-red-500/30 text-red-200 hover:bg-red-500/30"
               >
                 <Trash2 className="w-4 h-4" />
               </Button>
