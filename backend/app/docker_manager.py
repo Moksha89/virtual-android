@@ -40,7 +40,7 @@ class DockerManager:
             
             container = await asyncio.to_thread(
                 self.client.containers.run,
-                image="furtif/redroid:12.0.0-rooted-gapps",
+                image="teddynight/redroid:latest",
                 name=f"android-{instance_id}",
                 detach=True,
                 privileged=True,
@@ -49,6 +49,7 @@ class DockerManager:
                 devices=devices,
                 volumes={'/dev/binderfs': {'bind': '/dev/binderfs', 'mode': 'rw'}},
                 command=[
+                    "qemu=1",
                     "androidboot.redroid_width=1080",
                     "androidboot.redroid_height=2340",
                     "androidboot.redroid_dpi=480",
