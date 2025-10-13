@@ -40,7 +40,7 @@ class DockerManager:
             
             container = await asyncio.to_thread(
                 self.client.containers.run,
-                image="redroid/redroid:12.0.0-latest",
+                image="furtif/redroid:12.0.0-rooted-gapps",
                 name=f"android-{instance_id}",
                 detach=True,
                 privileged=True,
@@ -57,7 +57,16 @@ class DockerManager:
             )
             
             await asyncio.to_thread(container.reload)
-            adb_port = container.attrs['NetworkSettings']['Ports']['5555/tcp'][0]['HostPort']
+            
+            ports = container.attrs.get('NetworkSettings', {}).get('Ports', {})
+            logger.info(f"Container ports: {ports}")
+            
+            port_mapping = ports.get('5555/tcp')
+            if port_mapping and len(port_mapping) > 0:
+                adb_port = port_mapping[0]['HostPort']
+            else:
+                logger.warning(f"No port mapping found for 5555/tcp, using default")
+                adb_port = "5555"
             
             instance_info = {
                 "id": instance_id,
@@ -72,6 +81,17 @@ class DockerManager:
             
             self.instances[instance_id] = instance_info
             logger.info(f"Created instance {instance_id} with {ram_gb}GB RAM, {rom_gb}GB ROM, camera: {camera_device if camera_device else 'not available'}")
+            
+            await asyncio.sleep(10)
+            
+            try:
+                await asyncio.to_thread(
+                    container.exec_run,
+                    cmd="sh -c 'settings put global development_settings_enabled 1 && settings put global adb_enabled 1 && settings put global stay_on_while_plugged_in 7'"
+                )
+                logger.info(f"Developer options enabled for instance {instance_id}")
+            except Exception as e:
+                logger.warning(f"Failed to enable developer options for instance {instance_id}: {e}")
             
             return instance_info
             

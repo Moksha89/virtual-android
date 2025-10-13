@@ -109,9 +109,13 @@ export function AndroidScreen({ instanceId, onDelete }: AndroidScreenProps) {
     
     try {
       const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
+      const token = localStorage.getItem('token');
       await fetch(`${backendUrl}/api/instances/${instanceId}/input`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify({
           x: Math.round(x),
           y: Math.round(y),
@@ -120,6 +124,29 @@ export function AndroidScreen({ instanceId, onDelete }: AndroidScreenProps) {
       });
     } catch (error) {
       console.error('Failed to send input event:', error);
+    }
+  };
+  
+  const sendKeyEvent = async (keycode: number, keyName: string) => {
+    try {
+      const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
+      const token = localStorage.getItem('token');
+      
+      await fetch(`${backendUrl}/api/instances/${instanceId}/keyevent`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          keycode,
+          key_name: keyName
+        })
+      });
+      
+      console.log(`Sent ${keyName} key event`);
+    } catch (error) {
+      console.error(`Failed to send ${keyName} key event:`, error);
     }
   };
   
@@ -198,6 +225,54 @@ export function AndroidScreen({ instanceId, onDelete }: AndroidScreenProps) {
       
       <div className="space-y-2">
         <CameraStream instanceId={instanceId} />
+        
+        <Card className="p-4">
+          <h3 className="text-sm font-semibold mb-3">Hardware Buttons</h3>
+          <div className="grid grid-cols-2 gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => sendKeyEvent(24, 'Volume Up')}
+            >
+              Volume Up
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => sendKeyEvent(25, 'Volume Down')}
+            >
+              Volume Down
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => sendKeyEvent(26, 'Power')}
+            >
+              Power
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => sendKeyEvent(3, 'Home')}
+            >
+              Home
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => sendKeyEvent(4, 'Back')}
+            >
+              Back
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => sendKeyEvent(187, 'Recent Apps')}
+            >
+              Recent Apps
+            </Button>
+          </div>
+        </Card>
       </div>
       
       <div className="flex gap-2">

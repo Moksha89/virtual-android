@@ -20,9 +20,13 @@ export function InstanceCreator({ onInstanceCreated }: InstanceCreatorProps) {
     
     try {
       const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
+      const token = localStorage.getItem('token');
       const response = await fetch(`${backendUrl}/api/instances`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify({ 
           ram_gb: parseInt(ramGb), 
           rom_gb: parseInt(romGb) 
