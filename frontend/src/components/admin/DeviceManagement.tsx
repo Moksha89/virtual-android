@@ -122,7 +122,7 @@ export function DeviceManagement() {
         <h2 className="text-2xl font-bold text-white">Device Management</h2>
         <Button 
           onClick={() => setShowCreator(!showCreator)}
-          className="bg-gradient-to-r from-purple-500 to-blue-500 hover:from-purple-600 hover:to-blue-600 text-white border-0 shadow-lg shadow-purple-500/30 transition-all duration-200 hover:shadow-xl hover:scale-105"
+          className="bg-gradient-to-r from-gray-700 to-gray-900 hover:from-gray-600 hover:to-gray-800 text-white border-0 shadow-lg shadow-black/50 transition-all duration-200 hover:shadow-xl hover:scale-105"
         >
           <Plus className="w-4 h-4 mr-2" />
           Create Device
@@ -148,7 +148,7 @@ export function DeviceManagement() {
           >
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-4">
-                <div className="p-3 bg-gradient-to-br from-purple-500 to-blue-500 rounded-lg shadow-lg shadow-purple-500/30">
+                <div className="p-3 bg-gradient-to-br from-gray-600 to-gray-800 rounded-lg shadow-lg shadow-black/50">
                   <Smartphone className="w-6 h-6 text-white" />
                 </div>
                 <div>

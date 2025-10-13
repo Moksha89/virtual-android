@@ -103,7 +103,7 @@ export function UserManagement() {
         <h2 className="text-2xl font-bold text-white">User Management</h2>
         <Button 
           onClick={() => setShowCreateForm(!showCreateForm)}
-          className="bg-gradient-to-r from-purple-500 to-blue-500 hover:from-purple-600 hover:to-blue-600 text-white border-0 shadow-lg shadow-purple-500/30 transition-all duration-200 hover:shadow-xl hover:scale-105"
+          className="bg-gradient-to-r from-gray-700 to-gray-900 hover:from-gray-600 hover:to-gray-800 text-white border-0 shadow-lg shadow-black/50 transition-all duration-200 hover:shadow-xl hover:scale-105"
         >
           <UserPlus className="w-4 h-4 mr-2" />
           Create User
@@ -120,7 +120,7 @@ export function UserManagement() {
                 id="username"
                 value={newUser.username}
                 onChange={(e) => setNewUser({ ...newUser, username: e.target.value })}
-                className="bg-white/10 border-white/20 text-white placeholder:text-white/40 focus:border-purple-400 focus:ring-purple-400/20"
+                className="bg-white/10 border-white/20 text-white placeholder:text-white/40 focus:border-gray-400 focus:ring-gray-400/20"
                 required
               />
             </div>
@@ -132,7 +132,7 @@ export function UserManagement() {
                 type="email"
                 value={newUser.email}
                 onChange={(e) => setNewUser({ ...newUser, email: e.target.value })}
-                className="bg-white/10 border-white/20 text-white placeholder:text-white/40 focus:border-purple-400 focus:ring-purple-400/20"
+                className="bg-white/10 border-white/20 text-white placeholder:text-white/40 focus:border-gray-400 focus:ring-gray-400/20"
                 required
               />
             </div>
@@ -144,7 +144,7 @@ export function UserManagement() {
                 type="password"
                 value={newUser.password}
                 onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
-                className="bg-white/10 border-white/20 text-white placeholder:text-white/40 focus:border-purple-400 focus:ring-purple-400/20"
+                className="bg-white/10 border-white/20 text-white placeholder:text-white/40 focus:border-gray-400 focus:ring-gray-400/20"
                 required
               />
             </div>
@@ -197,7 +197,7 @@ export function UserManagement() {
                 <h3 className="font-semibold text-white text-lg">{user.username}</h3>
                 <p className="text-sm text-white/70">{user.email}</p>
                 <div className="flex gap-3 mt-2">
-                  <span className={`text-xs px-2 py-1 rounded ${user.role === 'admin' ? 'bg-purple-500/20 border border-purple-500/30 text-purple-200' : 'bg-blue-500/20 border border-blue-500/30 text-blue-200'}`}>
+                  <span className={`text-xs px-2 py-1 rounded ${user.role === 'admin' ? 'bg-gray-600/20 border border-gray-600/30 text-gray-200' : 'bg-gray-500/20 border border-gray-500/30 text-gray-300'}`}>
                     {user.role}
                   </span>
                   <span className="text-xs text-white/50">

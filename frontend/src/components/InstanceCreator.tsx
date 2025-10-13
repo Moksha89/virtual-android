@@ -87,7 +87,7 @@ export function InstanceCreator({ onInstanceCreated }: InstanceCreatorProps) {
         <Button 
           onClick={handleCreate} 
           disabled={loading} 
-          className="w-full bg-gradient-to-r from-purple-500 to-blue-500 hover:from-purple-600 hover:to-blue-600 text-white border-0 shadow-lg shadow-purple-500/30 transition-all duration-200 hover:shadow-xl disabled:opacity-50"
+          className="w-full bg-gradient-to-r from-gray-700 to-gray-900 hover:from-gray-600 hover:to-gray-800 text-white border-0 shadow-lg shadow-black/50 transition-all duration-200 hover:shadow-xl disabled:opacity-50"
         >
           {loading ? (
             <>

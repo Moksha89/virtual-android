@@ -181,7 +181,7 @@ export function AndroidScreen({ instanceId, onDelete }: AndroidScreenProps) {
         {isLoading && (
           <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-gray-900 to-gray-800">
             <div className="text-center text-white">
-              <Loader2 className="w-12 h-12 animate-spin mx-auto mb-4 text-blue-400" />
+              <Loader2 className="w-12 h-12 animate-spin mx-auto mb-4 text-gray-400" />
               <p className="text-sm">Connecting to Android...</p>
             </div>
           </div>
@@ -211,7 +211,7 @@ export function AndroidScreen({ instanceId, onDelete }: AndroidScreenProps) {
             {isLoading && (
               <div className="absolute inset-0 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm">
                 <div className="text-center text-white px-4">
-                  <div className="mb-4 p-4 bg-gradient-to-br from-blue-500 to-indigo-500 rounded-full inline-block shadow-lg shadow-blue-500/30">
+                  <div className="mb-4 p-4 bg-gradient-to-br from-gray-600 to-gray-800 rounded-full inline-block shadow-lg shadow-black/50">
                     <Smartphone className="w-12 h-12" />
                   </div>
                   <p className="text-sm mb-2 font-medium">Connecting to Android...</p>

@@ -53,7 +53,7 @@ export function MonitoringGrid() {
   if (devices.length === 0) {
     return (
       <Card className="p-12 text-center backdrop-blur-xl bg-white/10 border-white/20">
-        <div className="mx-auto w-20 h-20 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center mb-6 shadow-lg shadow-purple-500/30">
+        <div className="mx-auto w-20 h-20 rounded-full bg-gradient-to-br from-gray-600 to-gray-800 flex items-center justify-center mb-6 shadow-lg shadow-black/50">
           <Smartphone className="w-10 h-10 text-white" />
         </div>
         <h2 className="text-2xl font-bold text-white mb-3">No Devices Available</h2>
@@ -80,7 +80,7 @@ export function MonitoringGrid() {
             style={{ animationDelay: `${index * 100}ms` }}
           >
             <div className="flex items-center mb-3">
-              <div className="p-2 bg-gradient-to-br from-purple-500 to-blue-500 rounded-lg shadow-lg shadow-purple-500/30 mr-3">
+              <div className="p-2 bg-gradient-to-br from-gray-600 to-gray-800 rounded-lg shadow-lg shadow-black/50 mr-3">
                 <Smartphone className="w-5 h-5 text-white" />
               </div>
               <div>

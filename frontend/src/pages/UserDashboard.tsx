@@ -53,25 +53,25 @@ export function UserDashboard() {
   
   if (!user) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-900 via-indigo-900 to-purple-900 flex items-center justify-center">
+      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-black to-gray-800 flex items-center justify-center">
         <div className="text-white text-xl">Loading...</div>
       </div>
     );
   }
   
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-900 via-indigo-900 to-purple-900 p-4 relative overflow-hidden">
+    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-black to-gray-800 p-4 relative overflow-hidden">
       <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxnIGZpbGw9IiNmZmYiIGZpbGwtb3BhY2l0eT0iMC4wMyI+PHBhdGggZD0iTTM2IDE0NGgtMnYtNGgydjR6bTAtMTBoLTJ2LTRoMnY0em0wLTEwaC0ydi00aDJ2NHptMC0xMGgtMnYtNGgydjR6bTAtMTBoLTJWOTBoMnY0em0wLTEwaC0yVjgwaDJ2NHptMC0xMGgtMlY3MGgydjR6bTAtMTBoLTJWNjBoMnY0em0wLTEwaC0yVjUwaDJ2NHptMC0xMGgtMlY0MGgydjR6bTAtMTBoLTJWMzBoMnY0em0wLTEwaC0yVjIwaDJ2NHptMC0xMGgtMlYxMGgydjR6bTAtMTBoLTJWMGgydjR6TTE0NiAxNDRoLTJ2LTRoMnY0em0wLTEwaC0ydi00aDJ2NHptMC0xMGgtMnYtNGgydjR6bTAtMTBoLTJ2LTRoMnY0em0wLTEwaC0yVjkwaDJ2NHptMC0xMGgtMlY4MGgydjR6bTAtMTBoLTJWNzBoMnY0em0wLTEwaC0yVjYwaDJ2NHptMC0xMGgtMlY1MGgydjR6bTAtMTBoLTJWNDBoMnY0em0wLTEwaC0yVjMwaDJ2NHptMC0xMGgtMlYyMGgydjR6bTAtMTBoLTJWMTBoMnY0em0wLTEwaC0yVjBoMnY0eiIvPjwvZz48L2c+PC9zdmc+')] opacity-30"></div>
       
       <div className="max-w-7xl mx-auto relative z-10">
         <div className="flex items-center justify-between mb-8 animate-in fade-in slide-in-from-top-4 duration-700">
           <div className="flex items-center gap-4">
-            <div className="p-3 bg-gradient-to-br from-blue-500 to-indigo-500 rounded-xl shadow-lg shadow-blue-500/30">
+            <div className="p-3 bg-gradient-to-br from-gray-600 to-gray-800 rounded-xl shadow-lg shadow-black/50">
               <Smartphone className="w-8 h-8 text-white" strokeWidth={1.5} />
             </div>
             <div>
               <h1 className="text-3xl font-bold text-white mb-1">My Virtual Devices</h1>
-              <p className="text-blue-200 text-sm flex items-center gap-2">
+              <p className="text-gray-300 text-sm flex items-center gap-2">
                 <Sparkles className="w-3 h-3" />
                 Your Android Devices
               </p>
@@ -79,7 +79,7 @@ export function UserDashboard() {
           </div>
           <div className="flex items-center gap-4">
             <div className="text-right">
-              <p className="text-xs text-blue-300">Logged in as</p>
+              <p className="text-xs text-gray-400">Logged in as</p>
               <p className="text-white font-medium">{user.username}</p>
             </div>
             <Button 
@@ -100,7 +100,7 @@ export function UserDashboard() {
           </div>
         ) : devices.length === 0 ? (
           <Card className="p-12 text-center backdrop-blur-xl bg-white/10 border-white/20 animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <div className="mx-auto w-20 h-20 rounded-full bg-gradient-to-br from-blue-500 to-indigo-500 flex items-center justify-center mb-6 shadow-lg shadow-blue-500/30">
+            <div className="mx-auto w-20 h-20 rounded-full bg-gradient-to-br from-gray-500 to-gray-700 flex items-center justify-center mb-6 shadow-lg shadow-black/50">
               <Smartphone className="w-10 h-10 text-white" />
             </div>
             <h2 className="text-2xl font-bold text-white mb-3">No Devices Assigned</h2>
@@ -129,11 +129,11 @@ export function UserDashboard() {
             {devices.map((device, index) => (
               <Card 
                 key={device.id} 
-                className="p-6 backdrop-blur-xl bg-white/10 border-white/20 hover:bg-white/15 transition-all duration-300 hover:scale-105 hover:shadow-xl hover:shadow-blue-500/20 group cursor-pointer"
+                className="p-6 backdrop-blur-xl bg-white/10 border-white/20 hover:bg-white/15 transition-all duration-300 hover:scale-105 hover:shadow-xl hover:shadow-black/40 group cursor-pointer"
                 style={{ animationDelay: `${index * 100}ms` }}
               >
                 <div className="flex items-start justify-between mb-4">
-                  <div className="p-3 bg-gradient-to-br from-blue-500 to-indigo-500 rounded-lg shadow-lg shadow-blue-500/30 group-hover:scale-110 transition-transform duration-300">
+                  <div className="p-3 bg-gradient-to-br from-gray-600 to-gray-800 rounded-lg shadow-lg shadow-black/50 group-hover:scale-110 transition-transform duration-300">
                     <Smartphone className="w-6 h-6 text-white" />
                   </div>
                   <div className="px-3 py-1 bg-green-500/20 border border-green-500/30 rounded-full">
@@ -156,7 +156,7 @@ export function UserDashboard() {
                 
                 <Button 
                   onClick={() => setSelectedDevice(device.id)} 
-                  className="w-full bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600 text-white border-0 shadow-lg shadow-blue-500/30 transition-all duration-200 hover:shadow-xl hover:shadow-blue-500/40"
+                  className="w-full bg-gradient-to-r from-gray-700 to-gray-900 hover:from-gray-600 hover:to-gray-800 text-white border-0 shadow-lg shadow-black/50 transition-all duration-200 hover:shadow-xl hover:shadow-black/60"
                 >
                   Access Device
                 </Button>
