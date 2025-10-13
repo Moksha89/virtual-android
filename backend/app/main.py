@@ -144,11 +144,11 @@ class KeyEventRequest(BaseModel):
 
 @app.post("/api/auth/login", response_model=LoginResponse)
 @limiter.limit("5/minute")
-async def login(http_request: Request, request: LoginRequest, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.username == request.username).first()
+async def login(request: Request, login_request: LoginRequest, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.username == login_request.username).first()
     
-    if not user or not verify_password(request.password, user.password_hash):
-        logger.warning(f"Failed login attempt for username: {request.username} from {get_remote_address(http_request)}")
+    if not user or not verify_password(login_request.password, user.password_hash):
+        logger.warning(f"Failed login attempt for username: {login_request.username} from {get_remote_address(request)}")
         raise HTTPException(status_code=401, detail="Invalid username or password")
     
     token, expires_at = create_access_token(user.id, user.username, user.role)
