@@ -1,4 +1,5 @@
-from fastapi import FastAPI, WebSocket, HTTPException
+from fastapi import FastAPI, WebSocket, HTTPException, Request
+from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import os
@@ -51,7 +52,7 @@ class InputEventRequest(BaseModel):
     type: str = "tap"
 
 
-@app.post("/api/instances", response_model=InstanceResponse)
+@app.post("/instances", response_model=InstanceResponse)
 async def create_instance(request: CreateInstanceRequest):
     """Create a new Android instance with specified RAM and ROM."""
     if request.ram_gb not in [2, 4, 8]:
@@ -67,13 +68,13 @@ async def create_instance(request: CreateInstanceRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/api/instances")
+@app.get("/instances")
 async def list_instances():
     """List all active Android instances."""
     return docker_manager.list_instances()
 
 
-@app.get("/api/instances/{instance_id}", response_model=InstanceResponse)
+@app.get("/instances/{instance_id}", response_model=InstanceResponse)
 async def get_instance(instance_id: str):
     """Get information about a specific instance."""
     instance = docker_manager.get_instance(instance_id)
@@ -82,7 +83,7 @@ async def get_instance(instance_id: str):
     return instance
 
 
-@app.delete("/api/instances/{instance_id}")
+@app.delete("/instances/{instance_id}")
 async def delete_instance(instance_id: str):
     """Delete an Android instance."""
     success = await docker_manager.delete_instance(instance_id)
@@ -91,7 +92,7 @@ async def delete_instance(instance_id: str):
     return {"message": "Instance deleted successfully"}
 
 
-@app.post("/api/instances/{instance_id}/input")
+@app.post("/instances/{instance_id}/input")
 async def send_input_event(instance_id: str, request: InputEventRequest):
     """Send touch input event to an Android instance."""
     try:
@@ -109,7 +110,26 @@ async def send_input_event(instance_id: str, request: InputEventRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.websocket("/api/instances/{instance_id}/webrtc")
+@app.post("/instances/{instance_id}/camera")
+async def stream_camera(instance_id: str, request: Request):
+    """Receive camera stream from browser and forward to Android."""
+    from app.camera_manager import camera_manager
+    
+    try:
+        frame_data = await request.body()
+        
+        await camera_manager.start_camera_stream(instance_id, frame_data)
+        
+        return {"message": "Camera frame received"}
+        
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Failed to stream camera: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.websocket("/instances/{instance_id}/webrtc")
 async def webrtc_endpoint(websocket: WebSocket, instance_id: str):
     """WebRTC signaling endpoint for screen streaming."""
     instance = docker_manager.get_instance(instance_id)
@@ -118,6 +138,64 @@ async def webrtc_endpoint(websocket: WebSocket, instance_id: str):
         return
     
     await webrtc_signaling.handle_websocket(websocket, instance_id)
+
+
+@app.post("/instances/{instance_id}/call")
+async def make_call(instance_id: str, to_number: str):
+    """Make outbound call from Android instance."""
+    from app.voip_manager import voip_manager
+    
+    if not voip_manager.enabled:
+        raise HTTPException(status_code=503, detail="VoIP not configured")
+    
+    try:
+        call_sid = await voip_manager.make_call(instance_id, to_number)
+        return {"call_sid": call_sid, "status": "initiated"}
+    except Exception as e:
+        logger.error(f"Failed to make call: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/instances/{instance_id}/sms")
+async def send_sms(instance_id: str, to_number: str, message: str):
+    """Send SMS from Android instance."""
+    from app.voip_manager import voip_manager
+    
+    if not voip_manager.enabled:
+        raise HTTPException(status_code=503, detail="VoIP not configured")
+    
+    try:
+        sms_sid = await voip_manager.send_sms(instance_id, to_number, message)
+        return {"sms_sid": sms_sid, "status": "sent"}
+    except Exception as e:
+        logger.error(f"Failed to send SMS: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/voip/call-webhook")
+async def call_webhook(request: Request):
+    """Handle incoming call webhook from Twilio."""
+    from app.voip_manager import voip_manager
+    
+    form_data = await request.form()
+    instance_id = request.query_params.get("instance")
+    
+    response = voip_manager.handle_incoming_call(instance_id)
+    return Response(content=response, media_type="application/xml")
+
+
+@app.post("/voip/sms-webhook")
+async def sms_webhook(request: Request):
+    """Handle incoming SMS webhook from Twilio."""
+    from app.voip_manager import voip_manager
+    
+    form_data = await request.form()
+    instance_id = request.query_params.get("instance")
+    from_number = form_data.get("From")
+    body = form_data.get("Body")
+    
+    response = voip_manager.handle_incoming_sms(instance_id, from_number, body)
+    return Response(content=response, media_type="application/xml")
 
 
 @app.get("/healthz")

@@ -11,11 +11,12 @@ class DockerManager:
     """Manages Docker containers for Android instances on remote server."""
     
     def __init__(self, docker_host: str):
-        """Initialize Docker client with SSH connection to remote server."""
+        """Initialize Docker client with connection to Docker host."""
         try:
+            use_ssh_client = docker_host.startswith('ssh://')
             self.client = docker.DockerClient(
                 base_url=docker_host,
-                use_ssh_client=True
+                use_ssh_client=use_ssh_client
             )
             self.instances: Dict[str, dict] = {}
             logger.info(f"Connected to Docker host: {docker_host}")
@@ -28,6 +29,15 @@ class DockerManager:
         instance_id = str(uuid.uuid4())
         
         try:
+            from app.camera_manager import camera_manager
+            camera_device = None
+            devices = []
+            try:
+                camera_device = await camera_manager.setup_virtual_camera(instance_id)
+                devices = [f"{camera_device}:/dev/video0"]
+            except Exception as e:
+                logger.warning(f"Failed to setup camera for instance {instance_id}: {e}")
+            
             container = await asyncio.to_thread(
                 self.client.containers.run,
                 image="redroid/redroid:12.0.0-latest",
@@ -35,7 +45,9 @@ class DockerManager:
                 detach=True,
                 privileged=True,
                 mem_limit=f"{ram_gb}g",
-                ports={"5555/tcp": None},  # Random host port for ADB
+                ports={"5555/tcp": None},
+                devices=devices,
+                volumes={'/dev/binderfs': {'bind': '/dev/binderfs', 'mode': 'rw'}},
                 command=[
                     "androidboot.redroid_width=1080",
                     "androidboot.redroid_height=2340",
@@ -54,11 +66,12 @@ class DockerManager:
                 "ram_gb": ram_gb,
                 "rom_gb": rom_gb,
                 "adb_port": adb_port,
+                "camera_device": camera_device,
                 "status": "running"
             }
             
             self.instances[instance_id] = instance_info
-            logger.info(f"Created instance {instance_id} with {ram_gb}GB RAM, {rom_gb}GB ROM")
+            logger.info(f"Created instance {instance_id} with {ram_gb}GB RAM, {rom_gb}GB ROM, camera: {camera_device if camera_device else 'not available'}")
             
             return instance_info
             

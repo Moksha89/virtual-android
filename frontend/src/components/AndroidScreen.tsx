@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Loader2, Power, Trash2, Smartphone } from 'lucide-react';
+import { CameraStream } from './CameraStream';
 
 interface AndroidScreenProps {
   instanceId: string;
@@ -17,22 +18,66 @@ export function AndroidScreen({ instanceId, onDelete }: AndroidScreenProps) {
   
   useEffect(() => {
     const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
-    const wsUrl = backendUrl.replace('http', 'ws');
+    const wsUrl = backendUrl.replace('http', 'ws').replace('https', 'wss');
     
+    let pc: RTCPeerConnection | null = null;
     const ws = new WebSocket(`${wsUrl}/api/instances/${instanceId}/webrtc`);
     wsRef.current = ws;
     
-    ws.onopen = () => {
+    ws.onopen = async () => {
       console.log('WebRTC signaling connected');
       setIsLoading(false);
+      
+      pc = new RTCPeerConnection({
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' }
+        ]
+      });
+      
+      pc.ontrack = (event) => {
+        console.log('Received video track:', event);
+        if (videoRef.current && event.streams[0]) {
+          videoRef.current.srcObject = event.streams[0];
+        }
+      };
+      
+      pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          ws.send(JSON.stringify({
+            type: 'ice-candidate',
+            candidate: event.candidate.toJSON()
+          }));
+        }
+      };
+      
+      pc.addTransceiver('video', { direction: 'recvonly' });
+      
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      
+      console.log('Offer SDP length:', offer.sdp?.length);
+      console.log('Sending offer:', { type: offer.type, sdp: offer.sdp?.substring(0, 100) + '...' });
+      
+      ws.send(JSON.stringify({
+        type: offer.type,
+        sdp: offer.sdp
+      }));
     };
     
     ws.onmessage = async (event) => {
       const message = JSON.parse(event.data);
       console.log('Received WebRTC message:', message);
       
-      if (message.type === 'answer') {
-        console.log('WebRTC answer received');
+      if (message.type === 'answer' && pc) {
+        const answer = new RTCSessionDescription({
+          type: 'answer',
+          sdp: message.sdp
+        });
+        await pc.setRemoteDescription(answer);
+        console.log('WebRTC connection established');
+      } else if (message.type === 'error') {
+        console.error('WebRTC error:', message.message);
+        setError(message.message);
       }
     };
     
@@ -44,10 +89,16 @@ export function AndroidScreen({ instanceId, onDelete }: AndroidScreenProps) {
     
     ws.onclose = () => {
       console.log('WebSocket connection closed');
+      if (pc) {
+        pc.close();
+      }
     };
     
     return () => {
       ws.close();
+      if (pc) {
+        pc.close();
+      }
     };
   }, [instanceId]);
   
@@ -127,19 +178,16 @@ export function AndroidScreen({ instanceId, onDelete }: AndroidScreenProps) {
               ref={videoRef}
               autoPlay
               playsInline
-              className="w-full h-full object-cover"
-              style={{ display: isLoading ? 'none' : 'block' }}
+              muted
+              className="w-full h-full object-cover bg-gray-800"
             />
-            {!isLoading && !error && (
+            {isLoading && (
               <div className="absolute inset-0 flex items-center justify-center bg-gray-700">
                 <div className="text-center text-white px-4">
                   <Smartphone className="w-16 h-16 mx-auto mb-4" />
-                  <p className="text-sm mb-2">Android Instance Ready</p>
+                  <p className="text-sm mb-2">Connecting to Android...</p>
                   <p className="text-xs text-gray-400">
-                    Click anywhere to interact
-                  </p>
-                  <p className="text-xs text-gray-500 mt-2">
-                    (WebRTC streaming in Phase 2)
+                    Establishing WebRTC connection
                   </p>
                 </div>
               </div>
@@ -147,6 +195,10 @@ export function AndroidScreen({ instanceId, onDelete }: AndroidScreenProps) {
           </div>
         )}
       </Card>
+      
+      <div className="space-y-2">
+        <CameraStream instanceId={instanceId} />
+      </div>
       
       <div className="flex gap-2">
         <Button
