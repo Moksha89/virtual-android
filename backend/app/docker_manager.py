@@ -40,7 +40,7 @@ class DockerManager:
             
             container = await asyncio.to_thread(
                 self.client.containers.run,
-                image="teddynight/redroid:latest",
+                image="redroid/redroid:12.0.0-latest",
                 name=f"android-{instance_id}",
                 detach=True,
                 privileged=True,

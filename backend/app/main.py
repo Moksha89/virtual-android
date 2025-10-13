@@ -1,16 +1,23 @@
 from fastapi import FastAPI, WebSocket, HTTPException, Request, Depends
-from fastapi.responses import Response
+from fastapi.responses import Response, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+from sqlalchemy import text
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 import os
 from dotenv import load_dotenv
 import logging
 import asyncio
+import time
+from datetime import datetime
+import shutil
 
 from app.docker_manager import DockerManager
 from app.webrtc_signaling import WebRTCSignaling
-from app.database import get_db, User, DeviceAssignment
+from app.database import get_db, User, DeviceAssignment, engine
 from app.auth import (
     hash_password, verify_password, create_access_token, 
     get_current_user, get_current_admin_user, create_default_admin
@@ -18,10 +25,35 @@ from app.auth import (
 
 load_dotenv()
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler('/tmp/virtual-android-backend.log')
+    ]
+)
 logger = logging.getLogger(__name__)
 
+limiter = Limiter(key_func=get_remote_address)
 app = FastAPI(title="Virtual Android API")
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    start_time = time.time()
+    
+    logger.info(f"Request: {request.method} {request.url.path}")
+    
+    try:
+        response = await call_next(request)
+        process_time = time.time() - start_time
+        logger.info(f"Response: {request.method} {request.url.path} - Status: {response.status_code} - Time: {process_time:.3f}s")
+        return response
+    except Exception as e:
+        logger.error(f"Request failed: {request.method} {request.url.path} - Error: {str(e)}", exc_info=True)
+        raise
 
 # Disable CORS. Do not remove this for full-stack development.
 app.add_middleware(
@@ -42,7 +74,16 @@ webrtc_signaling = WebRTCSignaling()
 async def startup_event():
     db = next(get_db())
     admin = create_default_admin(db)
-    logger.info(f"Default admin user: username='admin', password='admin123' (CHANGE THIS!)")
+    
+    if admin and admin.username == "admin":
+        if verify_password("admin123", admin.password_hash):
+            logger.warning("=" * 80)
+            logger.warning("⚠️  SECURITY WARNING: Default admin password is still in use!")
+            logger.warning("⚠️  Please change it immediately via the admin dashboard or API")
+            logger.warning("⚠️  Endpoint: POST /api/auth/change-password")
+            logger.warning("=" * 80)
+        else:
+            logger.info(f"Default admin user exists with custom password")
 
 
 class CreateInstanceRequest(BaseModel):
@@ -102,13 +143,17 @@ class KeyEventRequest(BaseModel):
 
 
 @app.post("/api/auth/login", response_model=LoginResponse)
-async def login(request: LoginRequest, db: Session = Depends(get_db)):
+@limiter.limit("5/minute")
+async def login(http_request: Request, request: LoginRequest, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.username == request.username).first()
     
     if not user or not verify_password(request.password, user.password_hash):
+        logger.warning(f"Failed login attempt for username: {request.username} from {get_remote_address(http_request)}")
         raise HTTPException(status_code=401, detail="Invalid username or password")
     
     token, expires_at = create_access_token(user.id, user.username, user.role)
+    
+    logger.info(f"Successful login: {user.username} (role: {user.role})")
     
     return {
         "access_token": token,
@@ -135,6 +180,33 @@ async def get_current_user_info(current_user: User = Depends(get_current_user)):
         "email": current_user.email,
         "role": current_user.role
     }
+
+@app.post("/api/auth/change-password")
+async def change_password(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    body = await request.json()
+    old_password = body.get("old_password")
+    new_password = body.get("new_password")
+    
+    if not old_password or not new_password:
+        raise HTTPException(status_code=400, detail="old_password and new_password are required")
+    
+    if not verify_password(old_password, current_user.password_hash):
+        logger.warning(f"Failed password change attempt for user: {current_user.username}")
+        raise HTTPException(status_code=401, detail="Invalid current password")
+    
+    if len(new_password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+    
+    current_user.password_hash = hash_password(new_password)
+    db.commit()
+    
+    logger.info(f"Password changed for user: {current_user.username}")
+    return {"message": "Password changed successfully"}
+
 
 
 @app.post("/api/admin/users", response_model=UserResponse)
@@ -626,6 +698,55 @@ async def sms_webhook(request: Request):
 @app.get("/healthz")
 async def healthz():
     return {"status": "ok"}
+
+
+@app.get("/api/health")
+async def health_check(db: Session = Depends(get_db)):
+    """Comprehensive health check endpoint."""
+    health_status = {
+        "status": "healthy",
+        "timestamp": datetime.utcnow().isoformat(),
+        "checks": {}
+    }
+    
+    try:
+        db.execute(text("SELECT 1"))
+        health_status["checks"]["database"] = {"status": "healthy", "message": "Database connection successful"}
+    except Exception as e:
+        health_status["status"] = "unhealthy"
+        health_status["checks"]["database"] = {"status": "unhealthy", "message": str(e)}
+        logger.error(f"Database health check failed: {e}")
+    
+    try:
+        docker_manager.client.ping()
+        health_status["checks"]["docker"] = {"status": "healthy", "message": "Docker connection successful"}
+    except Exception as e:
+        health_status["status"] = "unhealthy"
+        health_status["checks"]["docker"] = {"status": "unhealthy", "message": str(e)}
+        logger.error(f"Docker health check failed: {e}")
+    
+    try:
+        total, used, free = shutil.disk_usage("/")
+        free_gb = free // (2**30)
+        health_status["checks"]["disk"] = {
+            "status": "healthy" if free_gb > 10 else "warning",
+            "free_gb": free_gb,
+            "total_gb": total // (2**30)
+        }
+        if free_gb < 10:
+            logger.warning(f"Low disk space: {free_gb}GB free")
+    except Exception as e:
+        health_status["checks"]["disk"] = {"status": "unknown", "message": str(e)}
+    
+    health_status["checks"]["instances"] = {
+        "count": len(docker_manager.list_instances()),
+        "status": "healthy"
+    }
+    
+    if health_status["status"] == "unhealthy":
+        return JSONResponse(status_code=503, content=health_status)
+    
+    return health_status
 
 
 @app.get("/")
