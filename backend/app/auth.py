@@ -59,8 +59,16 @@ async def get_current_user(
     db: Session = Depends(get_db)
 ) -> User:
     token = credentials.credentials
-    payload = decode_access_token(token)
     
+    from app.main import redis_manager
+    cache_key = f"user:token:{token[:20]}"
+    cached_user_data = redis_manager.get(cache_key)
+    
+    if cached_user_data:
+        user = User(**cached_user_data)
+        return user
+    
+    payload = decode_access_token(token)
     user_id = int(payload.get("sub"))
     user = db.query(User).filter(User.id == user_id).first()
     
@@ -69,6 +77,15 @@ async def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found"
         )
+    
+    user_data = {
+        "id": user.id,
+        "username": user.username,
+        "email": user.email,
+        "role": user.role,
+        "password_hash": user.password_hash
+    }
+    redis_manager.set(cache_key, user_data, ttl=3600)
     
     return user
 

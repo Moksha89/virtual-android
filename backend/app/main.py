@@ -22,6 +22,7 @@ from app.auth import (
     hash_password, verify_password, create_access_token, 
     get_current_user, get_current_admin_user, create_default_admin
 )
+from app.redis_manager import RedisManager
 
 load_dotenv()
 
@@ -68,6 +69,7 @@ docker_manager = DockerManager(
     docker_host=os.getenv("DOCKER_HOST", "ssh://administrator@155.117.44.194")
 )
 webrtc_signaling = WebRTCSignaling()
+redis_manager = RedisManager()
 
 
 @app.on_event("startup")
@@ -327,6 +329,11 @@ async def assign_device(
     db.add(assignment)
     db.commit()
     
+    redis_manager.delete_pattern(f"device:*:{instance_id}")
+    redis_manager.delete_pattern(f"user:*:{request.user_id}")
+    
+    logger.info(f"Assigned device {instance_id} to user {request.user_id}")
+    
     return {"message": "Device assigned successfully"}
 
 
@@ -347,6 +354,11 @@ async def unassign_device(
     
     db.delete(assignment)
     db.commit()
+    
+    redis_manager.delete_pattern(f"device:*:{instance_id}")
+    redis_manager.delete_pattern(f"user:*:{user_id}")
+    
+    logger.info(f"Unassigned device {instance_id} from user {user_id}")
     
     return {"message": "Device unassigned successfully"}
 
@@ -876,32 +888,63 @@ async def health_check(db: Session = Depends(get_db)):
     
     try:
         db.execute(text("SELECT 1"))
-        health_status["checks"]["database"] = {"status": "healthy", "message": "Database connection successful"}
+        health_status["checks"]["database"] = {
+            "status": "healthy",
+            "pool_size": engine.pool.size(),
+            "checked_in": engine.pool.checkedin(),
+            "overflow": engine.pool.overflow(),
+            "checked_out": engine.pool.checkedout()
+        }
     except Exception as e:
         health_status["status"] = "unhealthy"
-        health_status["checks"]["database"] = {"status": "unhealthy", "message": str(e)}
+        health_status["checks"]["database"] = {
+            "status": "unhealthy",
+            "error": str(e)
+        }
         logger.error(f"Database health check failed: {e}")
     
     try:
+        is_redis_healthy = redis_manager.is_healthy()
+        health_status["checks"]["redis"] = {
+            "status": "healthy" if is_redis_healthy else "unavailable",
+            "enabled": redis_manager.enabled
+        }
+        if not is_redis_healthy and redis_manager.enabled:
+            health_status["status"] = "degraded"
+    except Exception as e:
+        health_status["checks"]["redis"] = {
+            "status": "unhealthy",
+            "error": str(e)
+        }
+    
+    try:
         docker_manager.client.ping()
-        health_status["checks"]["docker"] = {"status": "healthy", "message": "Docker connection successful"}
+        health_status["checks"]["docker"] = {"status": "healthy"}
     except Exception as e:
         health_status["status"] = "unhealthy"
-        health_status["checks"]["docker"] = {"status": "unhealthy", "message": str(e)}
+        health_status["checks"]["docker"] = {
+            "status": "unhealthy",
+            "error": str(e)
+        }
         logger.error(f"Docker health check failed: {e}")
     
     try:
-        total, used, free = shutil.disk_usage("/")
-        free_gb = free // (2**30)
+        disk_usage = shutil.disk_usage("/")
+        free_gb = disk_usage.free / (1024 ** 3)
+        total_gb = disk_usage.total / (1024 ** 3)
         health_status["checks"]["disk"] = {
             "status": "healthy" if free_gb > 10 else "warning",
-            "free_gb": free_gb,
-            "total_gb": total // (2**30)
+            "free_gb": round(free_gb, 2),
+            "total_gb": round(total_gb, 2),
+            "percent_free": round((free_gb / total_gb) * 100, 2)
         }
         if free_gb < 10:
             logger.warning(f"Low disk space: {free_gb}GB free")
     except Exception as e:
-        health_status["checks"]["disk"] = {"status": "unknown", "message": str(e)}
+        health_status["checks"]["disk"] = {
+            "status": "unknown",
+            "error": str(e)
+        }
     
     health_status["checks"]["instances"] = {
         "count": len(docker_manager.list_instances()),
