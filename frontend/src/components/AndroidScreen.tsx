@@ -213,18 +213,18 @@ export function AndroidScreen({ instanceId, onDelete }: AndroidScreenProps) {
     <div ref={containerRef} className="relative">
       <div className="flex gap-4">
         <div className={`flex-1 space-y-4 transition-all duration-300 ${isFullscreen ? 'max-w-full' : 'max-w-md'}`}>
-          <Card className="relative overflow-hidden backdrop-blur-xl bg-gradient-to-br from-gray-900 to-gray-800 border-white/20 shadow-2xl" style={{ aspectRatio: isFullscreen ? 'auto' : '1080/2340', height: isFullscreen ? '100vh' : 'auto' }}>
+          <Card className="relative overflow-hidden bg-gradient-to-br from-slate-900 to-slate-800 border-slate-700 shadow-2xl rounded-xl" style={{ aspectRatio: isFullscreen ? 'auto' : '1080/2340', height: isFullscreen ? '100vh' : 'auto' }}>
             {isLoading && (
-              <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-gray-900 to-gray-800">
+              <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-slate-900 to-slate-800">
                 <div className="text-center text-white">
-                  <Loader2 className="w-12 h-12 animate-spin mx-auto mb-4 text-gray-400" />
+                  <Loader2 className="w-12 h-12 animate-spin mx-auto mb-4 text-indigo-400" />
                   <p className="text-sm">Connecting to Android...</p>
                 </div>
               </div>
             )}
             
             {error && (
-              <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-gray-900 to-gray-800">
+              <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-slate-900 to-slate-800">
                 <div className="text-center text-white px-4">
                   <Power className="w-12 h-12 mx-auto mb-4 text-red-400" />
                   <p className="text-sm">{error}</p>
@@ -241,16 +241,16 @@ export function AndroidScreen({ instanceId, onDelete }: AndroidScreenProps) {
                   ref={videoRef}
                   autoPlay
                   playsInline
-                  className="w-full h-full object-cover bg-gray-900"
+                  className="w-full h-full object-cover bg-slate-900"
                 />
                 {isLoading && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm">
+                  <div className="absolute inset-0 flex items-center justify-center bg-slate-900/80 backdrop-blur-sm">
                     <div className="text-center text-white px-4">
-                      <div className="mb-4 p-4 bg-gradient-to-br from-gray-600 to-gray-800 rounded-full inline-block shadow-lg shadow-black/50">
+                      <div className="mb-4 p-4 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full inline-block shadow-lg shadow-indigo-500/50">
                         <Smartphone className="w-12 h-12" />
                       </div>
                       <p className="text-sm mb-2 font-medium">Connecting to Android...</p>
-                      <p className="text-xs text-gray-400">
+                      <p className="text-xs text-slate-400">
                         Establishing WebRTC connection
                       </p>
                     </div>
@@ -263,7 +263,7 @@ export function AndroidScreen({ instanceId, onDelete }: AndroidScreenProps) {
               <Button
                 size="sm"
                 onClick={toggleFullscreen}
-                className="bg-black/50 hover:bg-black/70 border-white/20 text-white backdrop-blur-sm transition-all duration-200"
+                className="bg-indigo-500/90 hover:bg-indigo-600 border-0 text-white backdrop-blur-sm transition-all duration-200 shadow-lg shadow-indigo-500/50"
               >
                 {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
               </Button>
@@ -271,7 +271,7 @@ export function AndroidScreen({ instanceId, onDelete }: AndroidScreenProps) {
                 <Button
                   size="sm"
                   onClick={() => setSidebarOpen(!sidebarOpen)}
-                  className="bg-black/50 hover:bg-black/70 border-white/20 text-white backdrop-blur-sm transition-all duration-200"
+                  className="bg-purple-500/90 hover:bg-purple-600 border-0 text-white backdrop-blur-sm transition-all duration-200 shadow-lg shadow-purple-500/50"
                 >
                   {sidebarOpen ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
                 </Button>
@@ -289,7 +289,7 @@ export function AndroidScreen({ instanceId, onDelete }: AndroidScreenProps) {
                 <Button
                   onClick={handleDelete}
                   disabled={isDeleting}
-                  className="flex-1 bg-red-500/20 border border-red-500/30 text-red-200 hover:bg-red-500/30 transition-all duration-200"
+                  className="flex-1 bg-red-50 border border-red-200 text-red-600 hover:bg-red-100 transition-all duration-200 shadow-sm"
                 >
                   {isDeleting ? (
                     <>
@@ -305,8 +305,8 @@ export function AndroidScreen({ instanceId, onDelete }: AndroidScreenProps) {
                 </Button>
               </div>
               
-              <Card className="p-3 backdrop-blur-xl bg-white/5 border-white/10">
-                <div className="text-xs text-white/60 space-y-1">
+              <Card className="p-3 bg-white border-slate-200 shadow-sm rounded-xl">
+                <div className="text-xs text-slate-600 space-y-1">
                   <p className="font-mono">Instance ID: {instanceId.slice(0, 8)}...</p>
                   <p>Screen: 1080x2340 (Mobile)</p>
                   <p>OS: Android 12 AOSP</p>
@@ -318,8 +318,8 @@ export function AndroidScreen({ instanceId, onDelete }: AndroidScreenProps) {
         
         {!isFullscreen && (
           <div className={`transition-all duration-300 ${sidebarOpen ? 'w-64 opacity-100' : 'w-0 opacity-0 overflow-hidden'}`}>
-            <Card className="p-4 backdrop-blur-xl bg-white/10 border-white/20 sticky top-4">
-              <h3 className="text-sm font-semibold mb-4 text-white flex items-center gap-2">
+            <Card className="p-4 bg-white border-slate-200 shadow-lg sticky top-4 rounded-xl">
+              <h3 className="text-sm font-semibold mb-4 text-slate-900 flex items-center gap-2">
                 <span className="inline-block w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
                 Virtual Controls
               </h3>
@@ -329,7 +329,7 @@ export function AndroidScreen({ instanceId, onDelete }: AndroidScreenProps) {
                   variant="outline"
                   size="sm"
                   onClick={() => sendKeyEvent(26, 'Power')}
-                  className="w-full justify-start bg-white/10 border-white/20 text-white hover:bg-white/20 transition-all duration-200"
+                  className="w-full justify-start bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white border-0 transition-all duration-200 shadow-sm"
                 >
                   <Power className="w-4 h-4 mr-2" />
                   Power
@@ -339,7 +339,7 @@ export function AndroidScreen({ instanceId, onDelete }: AndroidScreenProps) {
                   variant="outline"
                   size="sm"
                   onClick={() => sendKeyEvent(24, 'Volume Up')}
-                  className="w-full justify-start bg-white/10 border-white/20 text-white hover:bg-white/20 transition-all duration-200"
+                  className="w-full justify-start bg-white border-slate-200 text-slate-700 hover:bg-slate-50 transition-all duration-200"
                 >
                   <Volume2 className="w-4 h-4 mr-2" />
                   Volume Up
@@ -349,21 +349,21 @@ export function AndroidScreen({ instanceId, onDelete }: AndroidScreenProps) {
                   variant="outline"
                   size="sm"
                   onClick={() => sendKeyEvent(25, 'Volume Down')}
-                  className="w-full justify-start bg-white/10 border-white/20 text-white hover:bg-white/20 transition-all duration-200"
+                  className="w-full justify-start bg-white border-slate-200 text-slate-700 hover:bg-slate-50 transition-all duration-200"
                 >
                   <VolumeX className="w-4 h-4 mr-2" />
                   Volume Down
                 </Button>
                 
-                <div className="border-t border-white/10 my-3 pt-3">
-                  <p className="text-xs text-white/60 mb-2 font-medium">Navigation</p>
+                <div className="border-t border-slate-200 my-3 pt-3">
+                  <p className="text-xs text-slate-500 mb-2 font-medium">Navigation</p>
                 </div>
                 
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={() => sendKeyEvent(3, 'Home')}
-                  className="w-full justify-start bg-white/10 border-white/20 text-white hover:bg-white/20 transition-all duration-200"
+                  className="w-full justify-start bg-white border-slate-200 text-slate-700 hover:bg-slate-50 transition-all duration-200"
                 >
                   <Home className="w-4 h-4 mr-2" />
                   Home
@@ -373,7 +373,7 @@ export function AndroidScreen({ instanceId, onDelete }: AndroidScreenProps) {
                   variant="outline"
                   size="sm"
                   onClick={() => sendKeyEvent(4, 'Back')}
-                  className="w-full justify-start bg-white/10 border-white/20 text-white hover:bg-white/20 transition-all duration-200"
+                  className="w-full justify-start bg-white border-slate-200 text-slate-700 hover:bg-slate-50 transition-all duration-200"
                 >
                   <ArrowLeft className="w-4 h-4 mr-2" />
                   Back
@@ -383,7 +383,7 @@ export function AndroidScreen({ instanceId, onDelete }: AndroidScreenProps) {
                   variant="outline"
                   size="sm"
                   onClick={() => sendKeyEvent(187, 'Recent Apps')}
-                  className="w-full justify-start bg-white/10 border-white/20 text-white hover:bg-white/20 transition-all duration-200"
+                  className="w-full justify-start bg-white border-slate-200 text-slate-700 hover:bg-slate-50 transition-all duration-200"
                 >
                   <MenuIcon className="w-4 h-4 mr-2" />
                   Recent Apps

@@ -122,7 +122,7 @@ export function DeviceManagement() {
         <h2 className="text-2xl font-bold text-white">Device Management</h2>
         <Button 
           onClick={() => setShowCreator(!showCreator)}
-          className="bg-gradient-to-r from-gray-700 to-gray-900 hover:from-gray-600 hover:to-gray-800 text-white border-0 shadow-lg shadow-black/50 transition-all duration-200 hover:shadow-xl hover:scale-105"
+          className="bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white border-0 shadow-lg shadow-indigo-500/50 transition-all duration-200 hover:shadow-xl hover:scale-105"
         >
           <Plus className="w-4 h-4 mr-2" />
           Create Device
@@ -130,8 +130,8 @@ export function DeviceManagement() {
       </div>
       
       {showCreator && (
-        <Card className="p-6 backdrop-blur-xl bg-white/10 border-white/20 animate-in fade-in slide-in-from-top-4 duration-500">
-          <h3 className="text-lg font-semibold mb-4 text-white">Create New Android Device</h3>
+        <Card className="p-6 bg-white border-slate-200 shadow-lg animate-in fade-in slide-in-from-top-4 duration-500 rounded-xl">
+          <h3 className="text-lg font-semibold mb-4 text-slate-900">Create New Android Device</h3>
           <InstanceCreator onInstanceCreated={() => {
             setShowCreator(false);
             fetchDevices();
@@ -143,34 +143,34 @@ export function DeviceManagement() {
         {devices.map((device, index) => (
           <Card 
             key={device.id} 
-            className="p-6 backdrop-blur-xl bg-white/10 border-white/20 hover:bg-white/15 transition-all duration-300 hover:shadow-lg animate-in fade-in slide-in-from-bottom-4"
+            className="p-6 bg-white border-slate-200 hover:border-indigo-300 hover:shadow-xl transition-all duration-300 animate-in fade-in slide-in-from-bottom-4 rounded-xl"
             style={{ animationDelay: `${index * 100}ms` }}
           >
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-4">
-                <div className="p-3 bg-gradient-to-br from-gray-600 to-gray-800 rounded-lg shadow-lg shadow-black/50">
+                <div className="p-3 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl shadow-lg shadow-indigo-500/50">
                   <Smartphone className="w-6 h-6 text-white" />
                 </div>
                 <div>
-                  <h3 className="font-semibold text-white text-lg">Android Device</h3>
-                  <p className="text-sm text-white/70">
+                  <h3 className="font-semibold text-slate-900 text-lg">Android Device</h3>
+                  <p className="text-sm text-slate-600">
                     {device.ram_gb}GB RAM / {device.rom_gb}GB ROM
                   </p>
-                  <p className="text-xs text-white/50 font-mono">ID: {device.id.slice(0, 8)}...</p>
+                  <p className="text-xs text-slate-500 font-mono">ID: {device.id.slice(0, 8)}...</p>
                   {device.assigned_to && device.assigned_to.length > 0 ? (
                     <div className="mt-2 space-y-1">
-                      <p className="text-xs text-white/50">Assigned to:</p>
+                      <p className="text-xs text-slate-500">Assigned to:</p>
                       <div className="flex flex-wrap gap-1">
                         {device.assigned_to.map((assignment: any) => (
-                          <div key={assignment.user_id} className="px-2 py-1 bg-green-500/20 border border-green-500/30 rounded inline-flex items-center gap-1">
-                            <span className="text-xs text-green-200">{assignment.username}</span>
+                          <div key={assignment.user_id} className="px-2 py-1 bg-green-50 border border-green-200 rounded inline-flex items-center gap-1">
+                            <span className="text-xs text-green-700">{assignment.username}</span>
                           </div>
                         ))}
                       </div>
                     </div>
                   ) : (
                     <div className="mt-2">
-                      <span className="text-xs text-white/50">Not assigned</span>
+                      <span className="text-xs text-slate-500">Not assigned</span>
                     </div>
                   )}
                 </div>
@@ -185,7 +185,7 @@ export function DeviceManagement() {
                         variant="outline"
                         size="sm"
                         onClick={() => handleUnassignDevice(device.id, assignment.user_id, assignment.username)}
-                        className="bg-white/10 border-white/20 text-white hover:bg-red-500/20 hover:border-red-500/30 transition-all duration-200"
+                        className="bg-white border-slate-200 text-slate-700 hover:bg-red-50 hover:border-red-200 hover:text-red-700 transition-all duration-200"
                       >
                         <UserX className="w-4 h-4 mr-2" />
                         Unassign {assignment.username}
@@ -196,12 +196,12 @@ export function DeviceManagement() {
                 {assigningDevice === device.id ? (
                   <div className="flex gap-2 items-center">
                     <Select value={selectedUserId} onValueChange={setSelectedUserId}>
-                      <SelectTrigger className="w-40 bg-white/10 border-white/20 text-white">
+                      <SelectTrigger className="w-40 bg-white border-slate-200 text-slate-900">
                         <SelectValue placeholder="Select user" />
                       </SelectTrigger>
-                      <SelectContent className="bg-gray-900 border-white/20">
+                      <SelectContent className="bg-white border-slate-200">
                         {users.map((user) => (
-                          <SelectItem key={user.id} value={user.id.toString()} className="text-white hover:bg-white/10">
+                          <SelectItem key={user.id} value={user.id.toString()} className="text-slate-900 hover:bg-slate-50">
                             {user.username}
                           </SelectItem>
                         ))}
@@ -211,7 +211,7 @@ export function DeviceManagement() {
                       size="sm"
                       onClick={() => handleAssignDevice(device.id)}
                       disabled={!selectedUserId}
-                      className="bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 text-white border-0 disabled:opacity-50"
+                      className="bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white border-0 disabled:opacity-50 shadow-sm"
                     >
                       Assign
                     </Button>
@@ -222,7 +222,7 @@ export function DeviceManagement() {
                         setAssigningDevice(null);
                         setSelectedUserId('');
                       }}
-                      className="bg-white/10 border-white/20 text-white hover:bg-white/20"
+                      className="bg-white border-slate-200 text-slate-700 hover:bg-slate-50"
                     >
                       Cancel
                     </Button>
@@ -232,7 +232,7 @@ export function DeviceManagement() {
                   variant="outline"
                   size="sm"
                   onClick={() => setAssigningDevice(device.id)}
-                  className="bg-white/10 border-white/20 text-white hover:bg-white/20 transition-all duration-200 hover:scale-105"
+                  className="bg-white border-slate-200 text-slate-700 hover:bg-indigo-50 hover:border-indigo-300 hover:text-indigo-700 transition-all duration-200 hover:scale-105"
                 >
                   <UserCheck className="w-4 h-4 mr-2" />
                   Assign User

@@ -51,43 +51,43 @@ export function InstanceCreator({ onInstanceCreated }: InstanceCreatorProps) {
     <div className="w-full max-w-md">
       <div className="space-y-4">
         <div className="space-y-2">
-          <label className="block text-sm font-medium text-white">RAM Memory</label>
+          <label className="block text-sm font-medium text-slate-700">RAM Memory</label>
           <Select value={ramGb} onValueChange={setRamGb}>
-            <SelectTrigger className="bg-white/10 border-white/20 text-white">
+            <SelectTrigger className="bg-white border-slate-200 text-slate-900">
               <SelectValue placeholder="Select RAM" />
             </SelectTrigger>
-            <SelectContent className="bg-gray-900 border-white/20">
-              <SelectItem value="2" className="text-white hover:bg-white/10">2 GB</SelectItem>
-              <SelectItem value="4" className="text-white hover:bg-white/10">4 GB (Recommended)</SelectItem>
-              <SelectItem value="8" className="text-white hover:bg-white/10">8 GB</SelectItem>
+            <SelectContent className="bg-white border-slate-200">
+              <SelectItem value="2" className="text-slate-900 hover:bg-slate-50">2 GB</SelectItem>
+              <SelectItem value="4" className="text-slate-900 hover:bg-slate-50">4 GB (Recommended)</SelectItem>
+              <SelectItem value="8" className="text-slate-900 hover:bg-slate-50">8 GB</SelectItem>
             </SelectContent>
           </Select>
         </div>
         
         <div className="space-y-2">
-          <label className="block text-sm font-medium text-white">ROM Storage</label>
+          <label className="block text-sm font-medium text-slate-700">ROM Storage</label>
           <Select value={romGb} onValueChange={setRomGb}>
-            <SelectTrigger className="bg-white/10 border-white/20 text-white">
+            <SelectTrigger className="bg-white border-slate-200 text-slate-900">
               <SelectValue placeholder="Select ROM" />
             </SelectTrigger>
-            <SelectContent className="bg-gray-900 border-white/20">
-              <SelectItem value="16" className="text-white hover:bg-white/10">16 GB</SelectItem>
-              <SelectItem value="32" className="text-white hover:bg-white/10">32 GB (Recommended)</SelectItem>
-              <SelectItem value="64" className="text-white hover:bg-white/10">64 GB</SelectItem>
+            <SelectContent className="bg-white border-slate-200">
+              <SelectItem value="16" className="text-slate-900 hover:bg-slate-50">16 GB</SelectItem>
+              <SelectItem value="32" className="text-slate-900 hover:bg-slate-50">32 GB (Recommended)</SelectItem>
+              <SelectItem value="64" className="text-slate-900 hover:bg-slate-50">64 GB</SelectItem>
             </SelectContent>
           </Select>
         </div>
         
         {error && (
-          <div className="p-3 rounded-lg bg-red-500/20 border border-red-500/30 animate-in slide-in-from-top-2 duration-300">
-            <p className="text-sm text-red-200">{error}</p>
+          <div className="p-3 rounded-lg bg-red-50 border border-red-200 animate-in slide-in-from-top-2 duration-300">
+            <p className="text-sm text-red-600">{error}</p>
           </div>
         )}
         
         <Button 
           onClick={handleCreate} 
           disabled={loading} 
-          className="w-full bg-gradient-to-r from-gray-700 to-gray-900 hover:from-gray-600 hover:to-gray-800 text-white border-0 shadow-lg shadow-black/50 transition-all duration-200 hover:shadow-xl disabled:opacity-50"
+          className="w-full bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white border-0 shadow-lg shadow-indigo-500/50 transition-all duration-200 hover:shadow-xl disabled:opacity-50"
         >
           {loading ? (
             <>
