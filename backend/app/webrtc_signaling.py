@@ -159,14 +159,22 @@ class AndroidScreenTrack(VideoStreamTrack):
 class WebRTCSignaling:
     
     def __init__(self):
-        self.connections: Dict[str, WebSocket] = {}
-        self.peer_connections: Dict[str, RTCPeerConnection] = {}
+        self.connections: Dict[str, Dict[str, WebSocket]] = {}
+        self.peer_connections: Dict[str, Dict[str, RTCPeerConnection]] = {}
     
     async def handle_websocket(self, websocket: WebSocket, instance_id: str):
         await websocket.accept()
-        self.connections[instance_id] = websocket
         
-        logger.info(f"WebRTC signaling connection established for instance {instance_id}")
+        import uuid
+        connection_id = str(uuid.uuid4())
+        
+        if instance_id not in self.connections:
+            self.connections[instance_id] = {}
+            self.peer_connections[instance_id] = {}
+        
+        self.connections[instance_id][connection_id] = websocket
+        
+        logger.info(f"WebRTC signaling connection established for instance {instance_id}, connection {connection_id}")
         
         try:
             while True:
@@ -176,31 +184,37 @@ class WebRTCSignaling:
                 message_type = message.get("type")
                 
                 if message_type == "offer":
-                    await self.handle_offer(instance_id, message, websocket)
+                    await self.handle_offer(instance_id, connection_id, message, websocket)
                     
                 elif message_type == "ice-candidate":
-                    await self.handle_ice_candidate(instance_id, message)
+                    await self.handle_ice_candidate(instance_id, connection_id, message)
                     
                 elif message_type == "ping":
                     await websocket.send_json({"type": "pong"})
                 
         except Exception as e:
-            logger.error(f"WebSocket error for instance {instance_id}: {e}")
+            logger.error(f"WebSocket error for instance {instance_id}, connection {connection_id}: {e}")
         finally:
-            if instance_id in self.connections:
+            if instance_id in self.connections and connection_id in self.connections[instance_id]:
+                del self.connections[instance_id][connection_id]
+            if instance_id in self.peer_connections and connection_id in self.peer_connections[instance_id]:
+                await self.peer_connections[instance_id][connection_id].close()
+                del self.peer_connections[instance_id][connection_id]
+            
+            if instance_id in self.connections and not self.connections[instance_id]:
                 del self.connections[instance_id]
-            if instance_id in self.peer_connections:
-                await self.peer_connections[instance_id].close()
+            if instance_id in self.peer_connections and not self.peer_connections[instance_id]:
                 del self.peer_connections[instance_id]
-            logger.info(f"WebRTC signaling connection closed for instance {instance_id}")
+                
+            logger.info(f"WebRTC signaling connection closed for instance {instance_id}, connection {connection_id}")
     
-    async def handle_offer(self, instance_id: str, message: dict, websocket: WebSocket):
-        logger.info(f"Received WebRTC offer for instance {instance_id}")
+    async def handle_offer(self, instance_id: str, connection_id: str, message: dict, websocket: WebSocket):
+        logger.info(f"Received WebRTC offer for instance {instance_id}, connection {connection_id}")
         logger.info(f"Message type: {message.get('type')}, SDP length: {len(message.get('sdp', '')) if message.get('sdp') else 'None'}")
         
         try:
             pc = RTCPeerConnection()
-            self.peer_connections[instance_id] = pc
+            self.peer_connections[instance_id][connection_id] = pc
             
             from app.main import docker_manager
             instance = docker_manager.get_instance(instance_id)
@@ -208,13 +222,16 @@ class WebRTCSignaling:
                 raise ValueError(f"Instance {instance_id} not found")
             
             screen_track = AndroidScreenTrack(instance_id, instance["adb_port"])
-            logger.info(f"[DEBUG] Created AndroidScreenTrack for instance {instance_id}")
+            logger.info(f"[DEBUG] Created AndroidScreenTrack for instance {instance_id}, connection {connection_id}")
             pc.addTrack(screen_track)
-            logger.info(f"[DEBUG] Added AndroidScreenTrack to peer connection for instance {instance_id}")
+            logger.info(f"[DEBUG] Added AndroidScreenTrack to peer connection for instance {instance_id}, connection {connection_id}")
+            
+            pc.addTransceiver('audio', direction='sendrecv')
+            logger.info(f"[DEBUG] Added audio transceiver for instance {instance_id}, connection {connection_id}")
             
             @pc.on("iceconnectionstatechange")
             async def on_ice_connection_state_change():
-                logger.info(f"ICE connection state: {pc.iceConnectionState}")
+                logger.info(f"ICE connection state for {connection_id}: {pc.iceConnectionState}")
             
             offer = RTCSessionDescription(
                 sdp=message["sdp"],
@@ -230,7 +247,7 @@ class WebRTCSignaling:
                 "sdp": pc.localDescription.sdp
             })
             
-            logger.info(f"WebRTC answer sent for instance {instance_id}")
+            logger.info(f"WebRTC answer sent for instance {instance_id}, connection {connection_id}")
             
         except Exception as e:
             import traceback
@@ -242,11 +259,11 @@ class WebRTCSignaling:
                 "message": str(e)
             })
     
-    async def handle_ice_candidate(self, instance_id: str, message: dict):
-        logger.info(f"Received ICE candidate for instance {instance_id}")
+    async def handle_ice_candidate(self, instance_id: str, connection_id: str, message: dict):
+        logger.info(f"Received ICE candidate for instance {instance_id}, connection {connection_id}")
         
-        if instance_id in self.peer_connections:
-            pc = self.peer_connections[instance_id]
+        if instance_id in self.peer_connections and connection_id in self.peer_connections[instance_id]:
+            pc = self.peer_connections[instance_id][connection_id]
             candidate_dict = message.get("candidate")
             if candidate_dict and isinstance(candidate_dict, dict):
                 try:
@@ -266,6 +283,6 @@ class WebRTCSignaling:
                                 sdpMLineIndex=candidate_dict.get("sdpMLineIndex")
                             )
                             await pc.addIceCandidate(candidate)
-                            logger.info(f"Added ICE candidate for instance {instance_id}")
+                            logger.info(f"Added ICE candidate for instance {instance_id}, connection {connection_id}")
                 except Exception as e:
                     logger.error(f"Failed to add ICE candidate: {e}")

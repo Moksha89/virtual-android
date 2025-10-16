@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Loader2, Power, Trash2, Smartphone } from 'lucide-react';
+import { Loader2, Power, Trash2, Smartphone, Volume2, VolumeX, Home, ArrowLeft, Menu as MenuIcon, Maximize, Minimize, ChevronLeft, ChevronRight } from 'lucide-react';
 import { CameraStream } from './CameraStream';
 
 interface AndroidScreenProps {
@@ -11,10 +11,13 @@ interface AndroidScreenProps {
 
 export function AndroidScreen({ instanceId, onDelete }: AndroidScreenProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   
   useEffect(() => {
     const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
@@ -51,6 +54,18 @@ export function AndroidScreen({ instanceId, onDelete }: AndroidScreenProps) {
       };
       
       pc.addTransceiver('video', { direction: 'recvonly' });
+      
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream.getAudioTracks().forEach(track => {
+          if (pc) {
+            pc.addTrack(track, stream);
+            console.log('Added audio track to peer connection');
+          }
+        });
+      } catch (err) {
+        console.warn('Could not access microphone:', err);
+      }
       
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
@@ -175,144 +190,209 @@ export function AndroidScreen({ instanceId, onDelete }: AndroidScreenProps) {
     }
   };
   
+  const toggleFullscreen = async () => {
+    if (!document.fullscreenElement) {
+      await containerRef.current?.requestFullscreen();
+      setIsFullscreen(true);
+    } else {
+      await document.exitFullscreen();
+      setIsFullscreen(false);
+    }
+  };
+  
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
+  
   return (
-    <div className="space-y-4">
-      <Card className="relative overflow-hidden backdrop-blur-xl bg-gradient-to-br from-gray-900 to-gray-800 border-white/20 shadow-2xl" style={{ aspectRatio: '1080/2340', maxWidth: '375px' }}>
-        {isLoading && (
-          <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-gray-900 to-gray-800">
-            <div className="text-center text-white">
-              <Loader2 className="w-12 h-12 animate-spin mx-auto mb-4 text-gray-400" />
-              <p className="text-sm">Connecting to Android...</p>
-            </div>
-          </div>
-        )}
-        
-        {error && (
-          <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-gray-900 to-gray-800">
-            <div className="text-center text-white px-4">
-              <Power className="w-12 h-12 mx-auto mb-4 text-red-400" />
-              <p className="text-sm">{error}</p>
-            </div>
-          </div>
-        )}
-        
-        {!error && (
-          <div 
-            className="absolute inset-0 cursor-pointer" 
-            onClick={handleClick}
-          >
-            <video
-              ref={videoRef}
-              autoPlay
-              playsInline
-              muted
-              className="w-full h-full object-cover bg-gray-900"
-            />
+    <div ref={containerRef} className="relative">
+      <div className="flex gap-4">
+        <div className={`flex-1 space-y-4 transition-all duration-300 ${isFullscreen ? 'max-w-full' : 'max-w-md'}`}>
+          <Card className="relative overflow-hidden backdrop-blur-xl bg-gradient-to-br from-gray-900 to-gray-800 border-white/20 shadow-2xl" style={{ aspectRatio: isFullscreen ? 'auto' : '1080/2340', height: isFullscreen ? '100vh' : 'auto' }}>
             {isLoading && (
-              <div className="absolute inset-0 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm">
-                <div className="text-center text-white px-4">
-                  <div className="mb-4 p-4 bg-gradient-to-br from-gray-600 to-gray-800 rounded-full inline-block shadow-lg shadow-black/50">
-                    <Smartphone className="w-12 h-12" />
-                  </div>
-                  <p className="text-sm mb-2 font-medium">Connecting to Android...</p>
-                  <p className="text-xs text-gray-400">
-                    Establishing WebRTC connection
-                  </p>
+              <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-gray-900 to-gray-800">
+                <div className="text-center text-white">
+                  <Loader2 className="w-12 h-12 animate-spin mx-auto mb-4 text-gray-400" />
+                  <p className="text-sm">Connecting to Android...</p>
                 </div>
               </div>
             )}
-          </div>
-        )}
-      </Card>
-      
-      <div className="space-y-3">
-        <CameraStream instanceId={instanceId} />
-        
-        <Card className="p-4 backdrop-blur-xl bg-white/10 border-white/20">
-          <h3 className="text-sm font-semibold mb-3 text-white flex items-center gap-2">
-            <span className="inline-block w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
-            Hardware Buttons
-          </h3>
-          <div className="grid grid-cols-2 gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => sendKeyEvent(24, 'Volume Up')}
-              className="bg-white/10 border-white/20 text-white hover:bg-white/20 transition-all duration-200 hover:scale-105"
-            >
-              🔊 Volume Up
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => sendKeyEvent(25, 'Volume Down')}
-              className="bg-white/10 border-white/20 text-white hover:bg-white/20 transition-all duration-200 hover:scale-105"
-            >
-              🔉 Volume Down
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => sendKeyEvent(26, 'Power')}
-              className="bg-white/10 border-white/20 text-white hover:bg-white/20 transition-all duration-200 hover:scale-105"
-            >
-              ⚡ Power
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => sendKeyEvent(3, 'Home')}
-              className="bg-white/10 border-white/20 text-white hover:bg-white/20 transition-all duration-200 hover:scale-105"
-            >
-              🏠 Home
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => sendKeyEvent(4, 'Back')}
-              className="bg-white/10 border-white/20 text-white hover:bg-white/20 transition-all duration-200 hover:scale-105"
-            >
-              ◀️ Back
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => sendKeyEvent(187, 'Recent Apps')}
-              className="bg-white/10 border-white/20 text-white hover:bg-white/20 transition-all duration-200 hover:scale-105"
-            >
-              📱 Recent
-            </Button>
-          </div>
-        </Card>
-      </div>
-      
-      <div className="flex gap-2">
-        <Button
-          onClick={handleDelete}
-          disabled={isDeleting}
-          className="flex-1 bg-red-500/20 border border-red-500/30 text-red-200 hover:bg-red-500/30 transition-all duration-200"
-        >
-          {isDeleting ? (
+            
+            {error && (
+              <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-gray-900 to-gray-800">
+                <div className="text-center text-white px-4">
+                  <Power className="w-12 h-12 mx-auto mb-4 text-red-400" />
+                  <p className="text-sm">{error}</p>
+                </div>
+              </div>
+            )}
+            
+            {!error && (
+              <div 
+                className="absolute inset-0 cursor-pointer" 
+                onClick={handleClick}
+              >
+                <video
+                  ref={videoRef}
+                  autoPlay
+                  playsInline
+                  className="w-full h-full object-cover bg-gray-900"
+                />
+                {isLoading && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm">
+                    <div className="text-center text-white px-4">
+                      <div className="mb-4 p-4 bg-gradient-to-br from-gray-600 to-gray-800 rounded-full inline-block shadow-lg shadow-black/50">
+                        <Smartphone className="w-12 h-12" />
+                      </div>
+                      <p className="text-sm mb-2 font-medium">Connecting to Android...</p>
+                      <p className="text-xs text-gray-400">
+                        Establishing WebRTC connection
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+            
+            <div className="absolute top-4 right-4 flex gap-2 z-10">
+              <Button
+                size="sm"
+                onClick={toggleFullscreen}
+                className="bg-black/50 hover:bg-black/70 border-white/20 text-white backdrop-blur-sm transition-all duration-200"
+              >
+                {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
+              </Button>
+              {!isFullscreen && (
+                <Button
+                  size="sm"
+                  onClick={() => setSidebarOpen(!sidebarOpen)}
+                  className="bg-black/50 hover:bg-black/70 border-white/20 text-white backdrop-blur-sm transition-all duration-200"
+                >
+                  {sidebarOpen ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+                </Button>
+              )}
+            </div>
+          </Card>
+          
+          {!isFullscreen && (
             <>
-              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-              Deleting...
-            </>
-          ) : (
-            <>
-              <Trash2 className="w-4 h-4 mr-2" />
-              Delete Instance
+              <div className="space-y-3">
+                <CameraStream instanceId={instanceId} />
+              </div>
+              
+              <div className="flex gap-2">
+                <Button
+                  onClick={handleDelete}
+                  disabled={isDeleting}
+                  className="flex-1 bg-red-500/20 border border-red-500/30 text-red-200 hover:bg-red-500/30 transition-all duration-200"
+                >
+                  {isDeleting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Deleting...
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="w-4 h-4 mr-2" />
+                      Delete Instance
+                    </>
+                  )}
+                </Button>
+              </div>
+              
+              <Card className="p-3 backdrop-blur-xl bg-white/5 border-white/10">
+                <div className="text-xs text-white/60 space-y-1">
+                  <p className="font-mono">Instance ID: {instanceId.slice(0, 8)}...</p>
+                  <p>Screen: 1080x2340 (Mobile)</p>
+                  <p>OS: Android 12 AOSP</p>
+                </div>
+              </Card>
             </>
           )}
-        </Button>
-      </div>
-      
-      <Card className="p-3 backdrop-blur-xl bg-white/5 border-white/10">
-        <div className="text-xs text-white/60 space-y-1">
-          <p className="font-mono">Instance ID: {instanceId.slice(0, 8)}...</p>
-          <p>Screen: 1080x2340 (Mobile)</p>
-          <p>OS: Android 12 AOSP</p>
         </div>
-      </Card>
+        
+        {!isFullscreen && (
+          <div className={`transition-all duration-300 ${sidebarOpen ? 'w-64 opacity-100' : 'w-0 opacity-0 overflow-hidden'}`}>
+            <Card className="p-4 backdrop-blur-xl bg-white/10 border-white/20 sticky top-4">
+              <h3 className="text-sm font-semibold mb-4 text-white flex items-center gap-2">
+                <span className="inline-block w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+                Virtual Controls
+              </h3>
+              
+              <div className="space-y-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => sendKeyEvent(26, 'Power')}
+                  className="w-full justify-start bg-white/10 border-white/20 text-white hover:bg-white/20 transition-all duration-200"
+                >
+                  <Power className="w-4 h-4 mr-2" />
+                  Power
+                </Button>
+                
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => sendKeyEvent(24, 'Volume Up')}
+                  className="w-full justify-start bg-white/10 border-white/20 text-white hover:bg-white/20 transition-all duration-200"
+                >
+                  <Volume2 className="w-4 h-4 mr-2" />
+                  Volume Up
+                </Button>
+                
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => sendKeyEvent(25, 'Volume Down')}
+                  className="w-full justify-start bg-white/10 border-white/20 text-white hover:bg-white/20 transition-all duration-200"
+                >
+                  <VolumeX className="w-4 h-4 mr-2" />
+                  Volume Down
+                </Button>
+                
+                <div className="border-t border-white/10 my-3 pt-3">
+                  <p className="text-xs text-white/60 mb-2 font-medium">Navigation</p>
+                </div>
+                
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => sendKeyEvent(3, 'Home')}
+                  className="w-full justify-start bg-white/10 border-white/20 text-white hover:bg-white/20 transition-all duration-200"
+                >
+                  <Home className="w-4 h-4 mr-2" />
+                  Home
+                </Button>
+                
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => sendKeyEvent(4, 'Back')}
+                  className="w-full justify-start bg-white/10 border-white/20 text-white hover:bg-white/20 transition-all duration-200"
+                >
+                  <ArrowLeft className="w-4 h-4 mr-2" />
+                  Back
+                </Button>
+                
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => sendKeyEvent(187, 'Recent Apps')}
+                  className="w-full justify-start bg-white/10 border-white/20 text-white hover:bg-white/20 transition-all duration-200"
+                >
+                  <MenuIcon className="w-4 h-4 mr-2" />
+                  Recent Apps
+                </Button>
+              </div>
+            </Card>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

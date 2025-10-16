@@ -313,20 +313,18 @@ async def assign_device(
         raise HTTPException(status_code=404, detail="User not found")
     
     existing = db.query(DeviceAssignment).filter(
-        DeviceAssignment.device_instance_id == instance_id
+        DeviceAssignment.device_instance_id == instance_id,
+        DeviceAssignment.user_id == request.user_id
     ).first()
     
     if existing:
-        from datetime import datetime
-        existing.user_id = request.user_id
-        existing.assigned_at = datetime.utcnow()
-    else:
-        assignment = DeviceAssignment(
-            device_instance_id=instance_id,
-            user_id=request.user_id
-        )
-        db.add(assignment)
+        return {"message": "Device already assigned to this user"}
     
+    assignment = DeviceAssignment(
+        device_instance_id=instance_id,
+        user_id=request.user_id
+    )
+    db.add(assignment)
     db.commit()
     
     return {"message": "Device assigned successfully"}
@@ -335,15 +333,17 @@ async def assign_device(
 @app.delete("/api/admin/devices/{instance_id}/assign")
 async def unassign_device(
     instance_id: str,
+    user_id: int,
     db: Session = Depends(get_db),
     admin: User = Depends(get_current_admin_user)
 ):
     assignment = db.query(DeviceAssignment).filter(
-        DeviceAssignment.device_instance_id == instance_id
+        DeviceAssignment.device_instance_id == instance_id,
+        DeviceAssignment.user_id == user_id
     ).first()
     
     if not assignment:
-        raise HTTPException(status_code=404, detail="Device not assigned")
+        raise HTTPException(status_code=404, detail="Device assignment not found")
     
     db.delete(assignment)
     db.commit()
@@ -357,26 +357,29 @@ async def list_all_devices(
     admin: User = Depends(get_current_admin_user)
 ):
     instances = docker_manager.list_instances()
-    assignments = db.query(DeviceAssignment).all()
-    
-    assignment_map = {a.device_instance_id: a for a in assignments}
     
     result = []
     for instance in instances:
-        assignment = assignment_map.get(instance["id"])
+        assignments = db.query(DeviceAssignment).filter(
+            DeviceAssignment.device_instance_id == instance["id"]
+        ).all()
+        
         device_info = {
             **instance,
-            "assigned_to": None
+            "assigned_to": []
         }
         
-        if assignment:
+        for assignment in assignments:
             user = db.query(User).filter(User.id == assignment.user_id).first()
             if user:
-                device_info["assigned_to"] = {
+                device_info["assigned_to"].append({
                     "user_id": user.id,
                     "username": user.username,
                     "assigned_at": assignment.assigned_at.isoformat()
-                }
+                })
+        
+        if not device_info["assigned_to"]:
+            device_info["assigned_to"] = None
         
         result.append(device_info)
     

@@ -10,11 +10,11 @@ interface Device {
   ram_gb: number;
   rom_gb: number;
   status: string;
-  assigned_to?: {
+  assigned_to?: Array<{
     user_id: number;
     username: string;
     assigned_at: string;
-  };
+  }> | null;
 }
 
 interface User {
@@ -88,13 +88,13 @@ export function DeviceManagement() {
     }
   };
   
-  const handleUnassignDevice = async (deviceId: string) => {
-    if (!confirm('Are you sure you want to unassign this device?')) {
+  const handleUnassignDevice = async (deviceId: string, userId: number, username: string) => {
+    if (!confirm(`Are you sure you want to unassign ${username} from this device?`)) {
       return;
     }
     
     try {
-      const response = await fetch(`${backendUrl}/api/admin/devices/${deviceId}/assign`, {
+      const response = await fetch(`${backendUrl}/api/admin/devices/${deviceId}/assign?user_id=${userId}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -157,28 +157,43 @@ export function DeviceManagement() {
                     {device.ram_gb}GB RAM / {device.rom_gb}GB ROM
                   </p>
                   <p className="text-xs text-white/50 font-mono">ID: {device.id.slice(0, 8)}...</p>
-                  {device.assigned_to && (
-                    <div className="mt-1 px-2 py-1 bg-green-500/20 border border-green-500/30 rounded inline-block">
-                      <p className="text-xs text-green-200">
-                        Assigned to: {device.assigned_to.username}
-                      </p>
+                  {device.assigned_to && device.assigned_to.length > 0 ? (
+                    <div className="mt-2 space-y-1">
+                      <p className="text-xs text-white/50">Assigned to:</p>
+                      <div className="flex flex-wrap gap-1">
+                        {device.assigned_to.map((assignment: any) => (
+                          <div key={assignment.user_id} className="px-2 py-1 bg-green-500/20 border border-green-500/30 rounded inline-flex items-center gap-1">
+                            <span className="text-xs text-green-200">{assignment.username}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="mt-2">
+                      <span className="text-xs text-white/50">Not assigned</span>
                     </div>
                   )}
                 </div>
               </div>
               
-              <div className="flex gap-2">
-                {device.assigned_to ? (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleUnassignDevice(device.id)}
-                    className="bg-white/10 border-white/20 text-white hover:bg-red-500/20 hover:border-red-500/30 transition-all duration-200"
-                  >
-                    <UserX className="w-4 h-4 mr-2" />
-                    Unassign
-                  </Button>
-                ) : assigningDevice === device.id ? (
+              <div className="flex gap-2 flex-wrap items-center">
+                {device.assigned_to && device.assigned_to.length > 0 ? (
+                  <>
+                    {device.assigned_to.map((assignment: any) => (
+                      <Button
+                        key={assignment.user_id}
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleUnassignDevice(device.id, assignment.user_id, assignment.username)}
+                        className="bg-white/10 border-white/20 text-white hover:bg-red-500/20 hover:border-red-500/30 transition-all duration-200"
+                      >
+                        <UserX className="w-4 h-4 mr-2" />
+                        Unassign {assignment.username}
+                      </Button>
+                    ))}
+                  </>
+                ) : null}
+                {assigningDevice === device.id ? (
                   <div className="flex gap-2 items-center">
                     <Select value={selectedUserId} onValueChange={setSelectedUserId}>
                       <SelectTrigger className="w-40 bg-white/10 border-white/20 text-white">
@@ -212,17 +227,16 @@ export function DeviceManagement() {
                       Cancel
                     </Button>
                   </div>
-                ) : (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setAssigningDevice(device.id)}
-                    className="bg-white/10 border-white/20 text-white hover:bg-white/20 transition-all duration-200 hover:scale-105"
-                  >
-                    <UserCheck className="w-4 h-4 mr-2" />
-                    Assign
-                  </Button>
-                )}
+                ) : null}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setAssigningDevice(device.id)}
+                  className="bg-white/10 border-white/20 text-white hover:bg-white/20 transition-all duration-200 hover:scale-105"
+                >
+                  <UserCheck className="w-4 h-4 mr-2" />
+                  Assign User
+                </Button>
               </div>
             </div>
           </Card>
