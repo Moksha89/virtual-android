@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Loader2, Power, Trash2, Smartphone, Volume2, VolumeX, Home, ArrowLeft, Menu as MenuIcon, Maximize, Minimize, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Loader2, Power, Trash2, Smartphone, Volume2, VolumeX, Home, ArrowLeft, Menu as MenuIcon, Maximize, Minimize, ChevronLeft, ChevronRight, Upload, Download } from 'lucide-react';
 import { CameraStream } from './CameraStream';
 
 interface AndroidScreenProps {
@@ -13,11 +13,17 @@ export function AndroidScreen({ instanceId, onDelete }: AndroidScreenProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  const dataChannelRef = useRef<RTCDataChannel | null>(null);
+  const clipboardIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [files, setFiles] = useState<string[]>([]);
+  const [showFiles, setShowFiles] = useState(false);
   
   useEffect(() => {
     const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
@@ -54,6 +60,36 @@ export function AndroidScreen({ instanceId, onDelete }: AndroidScreenProps) {
       };
       
       pc.addTransceiver('video', { direction: 'recvonly' });
+      
+      const dataChannel = pc.createDataChannel('clipboard');
+      dataChannelRef.current = dataChannel;
+      
+      dataChannel.onopen = () => {
+        console.log('Data channel opened');
+      };
+      
+      dataChannel.onmessage = (event) => {
+        console.log('Data channel message:', event.data);
+      };
+      
+      let lastClipboard = '';
+      clipboardIntervalRef.current = setInterval(async () => {
+        try {
+          const text = await navigator.clipboard.readText();
+          if (text !== lastClipboard && text !== '') {
+            lastClipboard = text;
+            if (dataChannel.readyState === 'open') {
+              dataChannel.send(JSON.stringify({
+                type: 'clipboard',
+                content: text
+              }));
+              console.log('Sent clipboard to Android:', text.substring(0, 50));
+            }
+          }
+        } catch (err) {
+          // Clipboard access might be denied
+        }
+      }, 1000);
       
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -110,6 +146,9 @@ export function AndroidScreen({ instanceId, onDelete }: AndroidScreenProps) {
     };
     
     return () => {
+      if (clipboardIntervalRef.current) {
+        clearInterval(clipboardIntervalRef.current);
+      }
       ws.close();
       if (pc) {
         pc.close();
@@ -209,6 +248,101 @@ export function AndroidScreen({ instanceId, onDelete }: AndroidScreenProps) {
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, []);
   
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+  
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
+  
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    
+    const droppedFiles = Array.from(e.dataTransfer.files);
+    if (droppedFiles.length === 0) return;
+    
+    setIsUploading(true);
+    try {
+      const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
+      const token = localStorage.getItem('token');
+      
+      for (const file of droppedFiles) {
+        const formData = new FormData();
+        formData.append('file', file);
+        
+        const response = await fetch(`${backendUrl}/api/instances/${instanceId}/upload`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}` },
+          body: formData
+        });
+        
+        if (!response.ok) {
+          throw new Error(`Failed to upload ${file.name}`);
+        }
+      }
+      
+      console.log('Files uploaded successfully');
+      await fetchFiles();
+    } catch (error) {
+      console.error('File upload failed:', error);
+    } finally {
+      setIsUploading(false);
+    }
+  };
+  
+  const fetchFiles = async () => {
+    try {
+      const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
+      const token = localStorage.getItem('token');
+      
+      const response = await fetch(`${backendUrl}/api/instances/${instanceId}/files`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setFiles(data.files);
+      }
+    } catch (error) {
+      console.error('Failed to fetch files:', error);
+    }
+  };
+  
+  const handleDownload = async (filename: string) => {
+    try {
+      const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
+      const token = localStorage.getItem('token');
+      
+      const response = await fetch(`${backendUrl}/api/instances/${instanceId}/download/${filename}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
+      if (response.ok) {
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+      }
+    } catch (error) {
+      console.error('File download failed:', error);
+    }
+  };
+  
+  useEffect(() => {
+    if (showFiles) {
+      fetchFiles();
+    }
+  }, [showFiles]);
+  
   return (
     <div ref={containerRef} className="relative">
       <div className="flex gap-4">
@@ -236,6 +370,9 @@ export function AndroidScreen({ instanceId, onDelete }: AndroidScreenProps) {
               <div 
                 className="absolute inset-0 cursor-pointer" 
                 onClick={handleClick}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
               >
                 <video
                   ref={videoRef}
@@ -243,6 +380,26 @@ export function AndroidScreen({ instanceId, onDelete }: AndroidScreenProps) {
                   playsInline
                   className="w-full h-full object-cover bg-slate-900"
                 />
+                
+                {isDragging && (
+                  <div className="absolute inset-0 bg-indigo-500/20 border-4 border-dashed border-indigo-500 flex items-center justify-center backdrop-blur-sm z-20">
+                    <div className="text-center text-white">
+                      <Upload className="w-16 h-16 mx-auto mb-4" />
+                      <p className="text-xl font-bold mb-2">Drop files to upload</p>
+                      <p className="text-sm">Files will be saved to /sdcard/Download/</p>
+                    </div>
+                  </div>
+                )}
+                
+                {isUploading && (
+                  <div className="absolute inset-0 bg-slate-900/80 flex items-center justify-center backdrop-blur-sm z-20">
+                    <div className="text-center text-white">
+                      <Loader2 className="w-12 h-12 animate-spin mx-auto mb-4 text-indigo-400" />
+                      <p className="text-sm">Uploading files...</p>
+                    </div>
+                  </div>
+                )}
+                
                 {isLoading && (
                   <div className="absolute inset-0 flex items-center justify-center bg-slate-900/80 backdrop-blur-sm">
                     <div className="text-center text-white px-4">
@@ -388,6 +545,39 @@ export function AndroidScreen({ instanceId, onDelete }: AndroidScreenProps) {
                   <MenuIcon className="w-4 h-4 mr-2" />
                   Recent Apps
                 </Button>
+                
+                <div className="border-t border-slate-200 my-3 pt-3">
+                  <p className="text-xs text-slate-500 mb-2 font-medium">File Transfer</p>
+                </div>
+                
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowFiles(!showFiles)}
+                  className="w-full justify-start bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white border-0 transition-all duration-200 shadow-sm"
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  {showFiles ? 'Hide' : 'Show'} Files
+                </Button>
+                
+                {showFiles && files.length > 0 && (
+                  <div className="mt-2 max-h-40 overflow-y-auto space-y-1">
+                    {files.map((file, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => handleDownload(file.split(' ').pop() || '')}
+                        className="w-full text-left text-xs px-2 py-1 bg-slate-50 hover:bg-slate-100 rounded truncate transition-colors"
+                        title={file}
+                      >
+                        📄 {file.split(' ').pop()}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                
+                {showFiles && files.length === 0 && (
+                  <p className="text-xs text-slate-400 mt-2 text-center">No files in Downloads</p>
+                )}
               </div>
             </Card>
           </div>

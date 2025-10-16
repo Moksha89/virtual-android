@@ -1,4 +1,4 @@
-from fastapi import FastAPI, WebSocket, HTTPException, Request, Depends
+from fastapi import FastAPI, WebSocket, HTTPException, Request, Depends, UploadFile
 from fastapi.responses import Response, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -696,6 +696,168 @@ async def sms_webhook(request: Request):
     
     response = voip_manager.handle_incoming_sms(instance_id, from_number, body)
     return Response(content=response, media_type="application/xml")
+
+
+@app.post("/api/instances/{instance_id}/upload")
+@limiter.limit("30/minute")
+async def upload_file(
+    request: Request,
+    instance_id: str,
+    file: UploadFile,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Upload file to Android device."""
+    assignment = db.query(DeviceAssignment).filter(
+        DeviceAssignment.device_instance_id == instance_id,
+        DeviceAssignment.user_id == current_user.id
+    ).first()
+    
+    if not assignment and not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    instance = docker_manager.get_instance(instance_id)
+    if not instance:
+        raise HTTPException(status_code=404, detail="Instance not found")
+    
+    try:
+        import tempfile
+        with tempfile.NamedTemporaryFile(delete=False) as tmp:
+            content = await file.read()
+            tmp.write(content)
+            tmp_path = tmp.name
+        
+        adb_port = instance["adb_port"]
+        android_path = f"/sdcard/Download/{file.filename}"
+        
+        process = await asyncio.create_subprocess_exec(
+            "adb", "-s", f"localhost:{adb_port}",
+            "push", tmp_path, android_path,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        
+        stdout, stderr = await process.communicate()
+        
+        os.unlink(tmp_path)
+        
+        if process.returncode != 0:
+            raise HTTPException(status_code=500, detail=f"ADB push failed: {stderr.decode()}")
+        
+        logger.info(f"File uploaded to {instance_id}: {file.filename}")
+        return {"message": "File uploaded successfully", "path": android_path}
+        
+    except Exception as e:
+        logger.error(f"File upload failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/instances/{instance_id}/files")
+@limiter.limit("60/minute")
+async def list_files(
+    request: Request,
+    instance_id: str,
+    path: str = "/sdcard/Download",
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """List files on Android device."""
+    assignment = db.query(DeviceAssignment).filter(
+        DeviceAssignment.device_instance_id == instance_id,
+        DeviceAssignment.user_id == current_user.id
+    ).first()
+    
+    if not assignment and not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    instance = docker_manager.get_instance(instance_id)
+    if not instance:
+        raise HTTPException(status_code=404, detail="Instance not found")
+    
+    try:
+        adb_port = instance["adb_port"]
+        
+        process = await asyncio.create_subprocess_exec(
+            "adb", "-s", f"localhost:{adb_port}",
+            "shell", f"ls -la {path}",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        
+        stdout, stderr = await process.communicate()
+        
+        if process.returncode != 0:
+            raise HTTPException(status_code=500, detail=f"Failed to list files: {stderr.decode()}")
+        
+        files = []
+        for line in stdout.decode().split('\n'):
+            if line.strip() and not line.startswith('total'):
+                files.append(line.strip())
+        
+        return {"files": files}
+        
+    except Exception as e:
+        logger.error(f"Failed to list files: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/instances/{instance_id}/download/{filename}")
+@limiter.limit("30/minute")
+async def download_file(
+    request: Request,
+    instance_id: str,
+    filename: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Download file from Android device."""
+    assignment = db.query(DeviceAssignment).filter(
+        DeviceAssignment.device_instance_id == instance_id,
+        DeviceAssignment.user_id == current_user.id
+    ).first()
+    
+    if not assignment and not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    instance = docker_manager.get_instance(instance_id)
+    if not instance:
+        raise HTTPException(status_code=404, detail="Instance not found")
+    
+    try:
+        import tempfile
+        adb_port = instance["adb_port"]
+        android_path = f"/sdcard/Download/{filename}"
+        
+        with tempfile.NamedTemporaryFile(delete=False) as tmp:
+            tmp_path = tmp.name
+        
+        process = await asyncio.create_subprocess_exec(
+            "adb", "-s", f"localhost:{adb_port}",
+            "pull", android_path, tmp_path,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        
+        stdout, stderr = await process.communicate()
+        
+        if process.returncode != 0:
+            os.unlink(tmp_path)
+            raise HTTPException(status_code=500, detail=f"ADB pull failed: {stderr.decode()}")
+        
+        with open(tmp_path, 'rb') as f:
+            content = f.read()
+        
+        os.unlink(tmp_path)
+        
+        return Response(
+            content=content,
+            media_type="application/octet-stream",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+        
+    except Exception as e:
+        logger.error(f"File download failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/healthz")

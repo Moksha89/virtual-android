@@ -226,8 +226,32 @@ class WebRTCSignaling:
             pc.addTrack(screen_track)
             logger.info(f"[DEBUG] Added AndroidScreenTrack to peer connection for instance {instance_id}, connection {connection_id}")
             
-            pc.addTransceiver('audio', direction='sendrecv')
-            logger.info(f"[DEBUG] Added audio transceiver for instance {instance_id}, connection {connection_id}")
+            @pc.on("datachannel")
+            async def on_datachannel(channel):
+                logger.info(f"Data channel opened: {channel.label}")
+                
+                @channel.on("message")
+                async def on_message(message):
+                    if isinstance(message, str):
+                        try:
+                            data = json.loads(message)
+                            if data.get("type") == "clipboard":
+                                clipboard_text = data.get("content", "")
+                                adb_port = instance["adb_port"]
+                                
+                                escaped_text = clipboard_text.replace('"', '\\"').replace('$', '\\$').replace('`', '\\`')
+                                
+                                process = await asyncio.create_subprocess_exec(
+                                    "adb", "-s", f"localhost:{adb_port}",
+                                    "shell", f'input text "{escaped_text}"',
+                                    stdout=asyncio.subprocess.PIPE,
+                                    stderr=asyncio.subprocess.PIPE
+                                )
+                                await process.communicate()
+                                
+                                logger.info(f"Set Android clipboard for {instance_id}")
+                        except Exception as e:
+                            logger.error(f"Failed to handle clipboard: {e}")
             
             @pc.on("iceconnectionstatechange")
             async def on_ice_connection_state_change():
