@@ -1,4 +1,4 @@
-from fastapi import FastAPI, WebSocket, HTTPException, Request, Depends, UploadFile
+from fastapi import FastAPI, WebSocket, HTTPException, Request, Depends, UploadFile, Query
 from fastapi.responses import Response, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -647,6 +647,21 @@ async def install_fdroid(
         raise HTTPException(status_code=500, detail="Failed to install F-Droid")
 
 
+@app.post("/api/instances/{instance_id}/install-aurora-store")
+@limiter.limit("5/minute")
+async def install_aurora_store(
+    request: Request,
+    instance_id: str,
+    current_user: User = Depends(get_current_admin_user)
+):
+    success = await docker_manager.install_aurora_store(instance_id)
+    if success:
+        logger.info(f"Aurora Store installed in instance {instance_id}")
+        return {"message": "Aurora Store installed successfully"}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to install Aurora Store")
+
+
 @app.post("/api/instances/{instance_id}/start-recording")
 @limiter.limit("5/minute")
 async def start_recording(
@@ -704,6 +719,24 @@ async def set_gps_location(
         return {"message": f"GPS location set to ({gps_request.latitude}, {gps_request.longitude})"}
     else:
         raise HTTPException(status_code=500, detail="Failed to set GPS location")
+
+
+@app.post("/api/instances/{instance_id}/set-encoding-quality")
+@limiter.limit("10/minute")
+async def set_encoding_quality(
+    request: Request,
+    instance_id: str,
+    quality: str = Query(..., regex="^(high|medium|low)$"),
+    current_user: User = Depends(get_current_user)
+):
+    instance = docker_manager.get_instance(instance_id)
+    if not instance:
+        raise HTTPException(status_code=404, detail="Instance not found")
+    
+    instance["encoding_quality"] = quality
+    
+    logger.info(f"Encoding quality set to {quality} for instance {instance_id}")
+    return {"message": f"Encoding quality set to {quality}", "quality": quality}
 
 
 @app.post("/api/instances/{instance_id}/set-network-throttling")

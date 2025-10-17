@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 class AndroidScreenTrack(VideoStreamTrack):
     
-    def __init__(self, instance_id: str, adb_port: str):
+    def __init__(self, instance_id: str, adb_port: str, encoding_quality: str = "medium"):
         super().__init__()
         logger.info(f"[DEBUG] AndroidScreenTrack.__init__ called for instance {instance_id}, port {adb_port}")
         self.instance_id = instance_id
@@ -22,7 +22,10 @@ class AndroidScreenTrack(VideoStreamTrack):
         self.frame_count = 0
         self.last_frame = None
         self.adb_connected = False
-        logger.info(f"[DEBUG] AndroidScreenTrack initialized successfully for instance {instance_id}")
+        self.encoding_quality = encoding_quality
+        self.target_fps = 30 if encoding_quality == "high" else (20 if encoding_quality == "medium" else 15)
+        self.last_frame_time = 0
+        logger.info(f"[DEBUG] AndroidScreenTrack initialized with quality={encoding_quality}, target_fps={self.target_fps}")
         
     async def ensure_adb_connected(self):
         """Ensure ADB is connected to the device."""
@@ -67,6 +70,17 @@ class AndroidScreenTrack(VideoStreamTrack):
     async def recv(self):
         logger.info(f"[DEBUG] AndroidScreenTrack.recv() called for instance {self.instance_id}")
         try:
+            import time
+            current_time = time.time()
+            frame_interval = 1.0 / self.target_fps
+            
+            if self.last_frame_time > 0:
+                elapsed = current_time - self.last_frame_time
+                if elapsed < frame_interval:
+                    await asyncio.sleep(frame_interval - elapsed)
+            
+            self.last_frame_time = time.time()
+            
             logger.info(f"[DEBUG] recv: About to call ensure_adb_connected() for instance {self.instance_id}")
             await self.ensure_adb_connected()
             logger.info(f"[DEBUG] recv: ensure_adb_connected() completed for instance {self.instance_id}")
@@ -102,10 +116,16 @@ class AndroidScreenTrack(VideoStreamTrack):
                     logger.info(f"[DEBUG] recv: Converted to RGB, shape: {img_rgb.shape} for instance {self.instance_id}")
                     
                     height, width = img_rgb.shape[:2]
-                    target_height = 720
+                    
+                    quality_resolutions = {
+                        "high": 1080,
+                        "medium": 720,
+                        "low": 480
+                    }
+                    target_height = quality_resolutions.get(self.encoding_quality, 720)
                     target_width = int(width * (target_height / height))
                     img_resized = cv2.resize(img_rgb, (target_width, target_height))
-                    logger.info(f"[DEBUG] recv: Resized to {target_width}x{target_height} for instance {self.instance_id}")
+                    logger.info(f"[DEBUG] recv: Resized to {target_width}x{target_height} (quality={self.encoding_quality}) for instance {self.instance_id}")
                     
                     frame = VideoFrame.from_ndarray(img_resized, format="rgb24")
                     frame.pts = pts
@@ -224,8 +244,9 @@ class WebRTCSignaling:
             if not instance:
                 raise ValueError(f"Instance {instance_id} not found")
             
-            screen_track = AndroidScreenTrack(instance_id, instance["adb_port"])
-            logger.info(f"[DEBUG] Created AndroidScreenTrack for instance {instance_id}, connection {connection_id}")
+            encoding_quality = instance.get("encoding_quality", "medium")
+            screen_track = AndroidScreenTrack(instance_id, instance["adb_port"], encoding_quality)
+            logger.info(f"[DEBUG] Created AndroidScreenTrack for instance {instance_id}, connection {connection_id}, quality={encoding_quality}")
             pc.addTrack(screen_track)
             logger.info(f"[DEBUG] Added AndroidScreenTrack to peer connection for instance {instance_id}, connection {connection_id}")
             

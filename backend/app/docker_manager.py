@@ -294,6 +294,36 @@ class DockerManager:
             logger.error(f"Failed to install F-Droid in instance {instance_id}: {e}")
             return False
     
+    async def install_aurora_store(self, instance_id: str) -> bool:
+        if instance_id not in self.instances:
+            raise ValueError(f"Instance {instance_id} not found")
+        
+        try:
+            instance = self.instances[instance_id]
+            container = await asyncio.to_thread(
+                self.client.containers.get,
+                instance["container_id"]
+            )
+            
+            aurora_url = "https://gitlab.com/AuroraOSS/AuroraStore/-/raw/master/app/release/AuroraStore_4.4.2.apk"
+            logger.info(f"Downloading Aurora Store APK from {aurora_url}")
+            
+            result = await asyncio.to_thread(
+                container.exec_run,
+                cmd=f"sh -c 'wget -O /sdcard/aurora.apk {aurora_url} && pm install /sdcard/aurora.apk'"
+            )
+            
+            if result.exit_code == 0:
+                logger.info(f"Aurora Store installed successfully in instance {instance_id}")
+                return True
+            else:
+                logger.error(f"Failed to install Aurora Store: {result.output}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Failed to install Aurora Store in instance {instance_id}: {e}")
+            return False
+    
     async def start_screen_recording(self, instance_id: str) -> dict:
         if instance_id not in self.instances:
             raise ValueError(f"Instance {instance_id} not found")

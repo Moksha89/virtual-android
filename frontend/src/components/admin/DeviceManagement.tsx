@@ -309,6 +309,24 @@ export function DeviceManagement() {
                 <Button
                   variant="outline"
                   size="sm"
+                  onClick={async () => {
+                    try {
+                      await fetch(`${backendUrl}/api/instances/${device.id}/install-aurora-store`, {
+                        method: 'POST',
+                        headers: { 'Authorization': `Bearer ${token}` }
+                      });
+                      alert('Aurora Store installation started. It may take a few minutes.');
+                    } catch (error) {
+                      console.error('Failed to install Aurora Store:', error);
+                    }
+                  }}
+                  className="bg-white border-slate-200 text-slate-700 hover:bg-purple-50 hover:border-purple-300 hover:text-purple-700"
+                >
+                  🏪 Install Aurora Store
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
                   onClick={() => setAssigningDevice(device.id)}
                   className="bg-white border-slate-200 text-slate-700 hover:bg-indigo-50 hover:border-indigo-300 hover:text-indigo-700 transition-all duration-200 hover:scale-105"
                 >

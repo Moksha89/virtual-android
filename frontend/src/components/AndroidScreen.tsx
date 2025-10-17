@@ -28,6 +28,7 @@ export function AndroidScreen({ instanceId, onDelete }: AndroidScreenProps) {
   const [showFiles, setShowFiles] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [activeCamera, setActiveCamera] = useState<'front' | 'back'>('front');
+  const [encodingQuality, setEncodingQuality] = useState<'high' | 'medium' | 'low'>('medium');
   
   useEffect(() => {
     const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
@@ -764,6 +765,30 @@ export function AndroidScreen({ instanceId, onDelete }: AndroidScreenProps) {
                   <option value="4g">Network: 4G</option>
                   <option value="lte">Network: LTE</option>
                   <option value="slow">Network: Slow</option>
+                </select>
+
+                <select
+                  value={encodingQuality}
+                  onChange={async (e) => {
+                    const quality = e.target.value as 'high' | 'medium' | 'low';
+                    setEncodingQuality(quality);
+                    try {
+                      const token = localStorage.getItem('token');
+                      const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
+                      await fetch(`${backendUrl}/api/instances/${instanceId}/set-encoding-quality?quality=${quality}`, {
+                        method: 'POST',
+                        headers: { 'Authorization': `Bearer ${token}` }
+                      });
+                      alert(`Streaming quality set to ${quality}`);
+                    } catch (error) {
+                      console.error('Failed to set encoding quality:', error);
+                    }
+                  }}
+                  className="w-full px-2 py-1 text-xs border border-slate-200 rounded bg-white"
+                >
+                  <option value="high">Quality: High (30 FPS, 1080p)</option>
+                  <option value="medium">Quality: Medium (20 FPS, 720p)</option>
+                  <option value="low">Quality: Low (15 FPS, 480p)</option>
                 </select>
               </div>
             </Card>
