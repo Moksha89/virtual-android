@@ -15,6 +15,8 @@ export function AndroidScreen({ instanceId, onDelete }: AndroidScreenProps) {
   const wsRef = useRef<WebSocket | null>(null);
   const dataChannelRef = useRef<RTCDataChannel | null>(null);
   const clipboardIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const gamepadIntervalRef = useRef<number | null>(null);
+
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -24,6 +26,8 @@ export function AndroidScreen({ instanceId, onDelete }: AndroidScreenProps) {
   const [isUploading, setIsUploading] = useState(false);
   const [files, setFiles] = useState<string[]>([]);
   const [showFiles, setShowFiles] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [activeCamera, setActiveCamera] = useState<'front' | 'back'>('front');
   
   useEffect(() => {
     const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
@@ -103,6 +107,34 @@ export function AndroidScreen({ instanceId, onDelete }: AndroidScreenProps) {
         console.warn('Could not access microphone:', err);
       }
       
+      const gamepadState: { [key: number]: boolean } = {};
+      
+      const pollGamepad = () => {
+        const gamepads = navigator.getGamepads();
+        for (const gamepad of gamepads) {
+          if (gamepad) {
+            gamepad.buttons.forEach((button, index) => {
+              const pressed = button.pressed;
+              const wasPressed = gamepadState[index] || false;
+              
+              if (pressed !== wasPressed) {
+                gamepadState[index] = pressed;
+                
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                  ws.send(JSON.stringify({
+                    type: 'gamepad',
+                    button: index,
+                    pressed: pressed
+                  }));
+                }
+              }
+            });
+          }
+        }
+      };
+      
+      gamepadIntervalRef.current = setInterval(pollGamepad, 16) as unknown as number;
+      
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
       
@@ -148,6 +180,9 @@ export function AndroidScreen({ instanceId, onDelete }: AndroidScreenProps) {
     return () => {
       if (clipboardIntervalRef.current) {
         clearInterval(clipboardIntervalRef.current);
+      }
+      if (gamepadIntervalRef.current) {
+        clearInterval(gamepadIntervalRef.current);
       }
       ws.close();
       if (pc) {
@@ -578,6 +613,158 @@ export function AndroidScreen({ instanceId, onDelete }: AndroidScreenProps) {
                 {showFiles && files.length === 0 && (
                   <p className="text-xs text-slate-400 mt-2 text-center">No files in Downloads</p>
                 )}
+                
+                <div className="border-t border-slate-200 my-3 pt-3">
+                  <p className="text-xs text-slate-500 mb-2 font-medium">Phase 3 Features</p>
+                </div>
+                
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={async () => {
+                    if (!isRecording) {
+                      try {
+                        const token = localStorage.getItem('token');
+                        const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
+                        await fetch(`${backendUrl}/api/instances/${instanceId}/start-recording`, {
+                          method: 'POST',
+                          headers: { 'Authorization': `Bearer ${token}` }
+                        });
+                        setIsRecording(true);
+                        alert('Recording started (max 3 minutes)');
+                        setTimeout(() => setIsRecording(false), 180000);
+                      } catch (error) {
+                        console.error('Failed to start recording:', error);
+                      }
+                    }
+                  }}
+                  className={`w-full justify-start ${isRecording ? 'bg-red-500 hover:bg-red-600 text-white' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'} transition-all duration-200`}
+                >
+                  {isRecording ? '⏺️ Recording...' : '🎥 Record Screen'}
+                </Button>
+                
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={async () => {
+                    try {
+                      const token = localStorage.getItem('token');
+                      const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
+                      const response = await fetch(`${backendUrl}/api/instances/${instanceId}/screenshot`, {
+                        headers: { 'Authorization': `Bearer ${token}` }
+                      });
+                      const blob = await response.blob();
+                      const url = window.URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = `screenshot_${Date.now()}.png`;
+                      a.click();
+                    } catch (error) {
+                      console.error('Failed to take screenshot:', error);
+                    }
+                  }}
+                  className="w-full justify-start bg-white border-slate-200 text-slate-700 hover:bg-slate-50 transition-all duration-200"
+                >
+                  📸 Screenshot
+                </Button>
+                
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={async () => {
+                    const newCamera = activeCamera === 'front' ? 'back' : 'front';
+                    try {
+                      const token = localStorage.getItem('token');
+                      const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
+                      await fetch(`${backendUrl}/api/instances/${instanceId}/switch-camera?camera_type=${newCamera}`, {
+                        method: 'POST',
+                        headers: { 'Authorization': `Bearer ${token}` }
+                      });
+                      setActiveCamera(newCamera);
+                      alert(`Switched to ${newCamera} camera`);
+                    } catch (error) {
+                      console.error('Failed to switch camera:', error);
+                    }
+                  }}
+                  className="w-full justify-start bg-white border-slate-200 text-slate-700 hover:bg-slate-50 transition-all duration-200"
+                >
+                  🔄 Switch to {activeCamera === 'front' ? 'Back' : 'Front'} Camera
+                </Button>
+                
+                <div className="flex gap-1 items-center">
+                  <input
+                    type="number"
+                    step="0.0001"
+                    placeholder="Lat"
+                    className="flex-1 px-2 py-1 text-xs border border-slate-200 rounded"
+                    id={`gps-lat-${instanceId}`}
+                  />
+                  <input
+                    type="number"
+                    step="0.0001"
+                    placeholder="Lng"
+                    className="flex-1 px-2 py-1 text-xs border border-slate-200 rounded"
+                    id={`gps-lng-${instanceId}`}
+                  />
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={async () => {
+                    const latInput = document.getElementById(`gps-lat-${instanceId}`) as HTMLInputElement;
+                    const lngInput = document.getElementById(`gps-lng-${instanceId}`) as HTMLInputElement;
+                    const latitude = parseFloat(latInput.value);
+                    const longitude = parseFloat(lngInput.value);
+                    
+                    if (isNaN(latitude) || isNaN(longitude)) {
+                      alert('Please enter valid latitude and longitude');
+                      return;
+                    }
+                    
+                    try {
+                      const token = localStorage.getItem('token');
+                      const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
+                      await fetch(`${backendUrl}/api/instances/${instanceId}/set-gps`, {
+                        method: 'POST',
+                        headers: {
+                          'Content-Type': 'application/json',
+                          'Authorization': `Bearer ${token}`
+                        },
+                        body: JSON.stringify({ latitude, longitude })
+                      });
+                      alert(`GPS set to (${latitude}, ${longitude})`);
+                    } catch (error) {
+                      console.error('Failed to set GPS location:', error);
+                    }
+                  }}
+                  className="w-full justify-start bg-white border-slate-200 text-slate-700 hover:bg-slate-50 transition-all duration-200"
+                >
+                  📍 Set GPS
+                </Button>
+                
+                <select
+                  onChange={async (e) => {
+                    const preset = e.target.value;
+                    try {
+                      const token = localStorage.getItem('token');
+                      const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
+                      await fetch(`${backendUrl}/api/instances/${instanceId}/set-network-throttling?preset=${preset}`, {
+                        method: 'POST',
+                        headers: { 'Authorization': `Bearer ${token}` }
+                      });
+                      alert(`Network set to ${preset}`);
+                    } catch (error) {
+                      console.error('Failed to set network throttling:', error);
+                    }
+                  }}
+                  className="w-full px-2 py-1 text-xs border border-slate-200 rounded bg-white"
+                >
+                  <option value="none">Network: None</option>
+                  <option value="3g">Network: 3G</option>
+                  <option value="4g">Network: 4G</option>
+                  <option value="lte">Network: LTE</option>
+                  <option value="slow">Network: Slow</option>
+                </select>
               </div>
             </Card>
           </div>

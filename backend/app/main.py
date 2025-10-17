@@ -17,7 +17,7 @@ import shutil
 
 from app.docker_manager import DockerManager
 from app.webrtc_signaling import WebRTCSignaling
-from app.database import get_db, User, DeviceAssignment, engine
+from app.database import get_db, User, DeviceAssignment, Snapshot, engine
 from app.auth import (
     hash_password, verify_password, create_access_token, 
     get_current_user, get_current_admin_user, create_default_admin
@@ -141,6 +141,27 @@ class AssignDeviceRequest(BaseModel):
 
 class KeyEventRequest(BaseModel):
     keycode: int
+
+
+class CreateSnapshotRequest(BaseModel):
+    snapshot_name: str
+    description: str = ""
+
+
+class SnapshotResponse(BaseModel):
+    id: int
+    instance_id: str
+    snapshot_name: str
+    snapshot_image_id: str
+    description: str
+    created_by: int
+    created_at: str
+    size_mb: int
+
+
+class SetGPSRequest(BaseModel):
+    latitude: float
+    longitude: float
     key_name: str
 
 
@@ -502,6 +523,204 @@ async def delete_instance(instance_id: str):
     success = await docker_manager.delete_instance(instance_id)
     if not success:
         raise HTTPException(status_code=404, detail="Instance not found")
+
+
+@app.post("/api/instances/{instance_id}/snapshots", response_model=SnapshotResponse)
+@limiter.limit("5/minute")
+async def create_snapshot(
+    request: Request,
+    instance_id: str,
+    snapshot_request: CreateSnapshotRequest,
+    current_user: User = Depends(get_current_admin_user),
+    db: Session = Depends(get_db)
+):
+    snapshot_info = await docker_manager.create_snapshot(
+        instance_id,
+        snapshot_request.snapshot_name,
+        snapshot_request.description
+    )
+    
+    snapshot = Snapshot(
+        instance_id=instance_id,
+        snapshot_name=snapshot_request.snapshot_name,
+        snapshot_image_id=snapshot_info["snapshot_image_id"],
+        description=snapshot_request.description,
+        created_by=current_user.id,
+        size_mb=snapshot_info["size_mb"]
+    )
+    db.add(snapshot)
+    db.commit()
+    db.refresh(snapshot)
+    
+    logger.info(f"Snapshot {snapshot_request.snapshot_name} created for instance {instance_id}")
+    
+    return SnapshotResponse(
+        id=snapshot.id,
+        instance_id=snapshot.instance_id,
+        snapshot_name=snapshot.snapshot_name,
+        snapshot_image_id=snapshot.snapshot_image_id,
+        description=snapshot.description,
+        created_by=snapshot.created_by,
+        created_at=snapshot.created_at.isoformat(),
+        size_mb=snapshot.size_mb
+    )
+
+
+@app.get("/api/snapshots")
+@limiter.limit("10/minute")
+async def list_snapshots(
+    request: Request,
+    current_user: User = Depends(get_current_admin_user),
+    db: Session = Depends(get_db)
+):
+    snapshots = db.query(Snapshot).all()
+    return [
+        SnapshotResponse(
+            id=s.id,
+            instance_id=s.instance_id,
+            snapshot_name=s.snapshot_name,
+            snapshot_image_id=s.snapshot_image_id,
+            description=s.description,
+            created_by=s.created_by,
+            created_at=s.created_at.isoformat(),
+            size_mb=s.size_mb
+        )
+        for s in snapshots
+    ]
+
+
+@app.post("/api/snapshots/{snapshot_id}/restore")
+@limiter.limit("5/minute")
+async def restore_snapshot(
+    request: Request,
+    snapshot_id: int,
+    current_user: User = Depends(get_current_admin_user),
+    db: Session = Depends(get_db)
+):
+    snapshot = db.query(Snapshot).filter(Snapshot.id == snapshot_id).first()
+    if not snapshot:
+        raise HTTPException(status_code=404, detail="Snapshot not found")
+    
+    instance_info = await docker_manager.restore_snapshot(
+        snapshot.snapshot_image_id,
+        ram_gb=4,
+        rom_gb=32
+    )
+    
+    logger.info(f"Instance restored from snapshot {snapshot.snapshot_name}")
+    return instance_info
+
+
+@app.delete("/api/snapshots/{snapshot_id}")
+@limiter.limit("10/minute")
+async def delete_snapshot_endpoint(
+    request: Request,
+    snapshot_id: int,
+    current_user: User = Depends(get_current_admin_user),
+    db: Session = Depends(get_db)
+):
+    snapshot = db.query(Snapshot).filter(Snapshot.id == snapshot_id).first()
+    if not snapshot:
+        raise HTTPException(status_code=404, detail="Snapshot not found")
+    
+    success = await docker_manager.delete_snapshot(snapshot.snapshot_image_id)
+    if success:
+        db.delete(snapshot)
+        db.commit()
+        logger.info(f"Snapshot {snapshot.snapshot_name} deleted")
+        return {"message": "Snapshot deleted successfully"}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to delete snapshot")
+
+
+@app.post("/api/instances/{instance_id}/install-fdroid")
+@limiter.limit("5/minute")
+async def install_fdroid(
+    request: Request,
+    instance_id: str,
+    current_user: User = Depends(get_current_admin_user)
+):
+    success = await docker_manager.install_fdroid(instance_id)
+    if success:
+        logger.info(f"F-Droid installed in instance {instance_id}")
+        return {"message": "F-Droid installed successfully"}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to install F-Droid")
+
+
+@app.post("/api/instances/{instance_id}/start-recording")
+@limiter.limit("5/minute")
+async def start_recording(
+    request: Request,
+    instance_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    result = await docker_manager.start_screen_recording(instance_id)
+    logger.info(f"Screen recording started for instance {instance_id}")
+    return result
+
+
+@app.get("/api/instances/{instance_id}/screenshot")
+@limiter.limit("10/minute")
+async def take_screenshot_endpoint(
+    request: Request,
+    instance_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    screenshot_data = await docker_manager.take_screenshot(instance_id)
+    
+    return Response(
+        content=screenshot_data,
+        media_type="image/png",
+        headers={
+            "Content-Disposition": f"attachment; filename=screenshot_{instance_id}_{int(time.time())}.png"
+        }
+    )
+
+
+@app.post("/api/instances/{instance_id}/switch-camera")
+@limiter.limit("10/minute")
+async def switch_camera(
+    request: Request,
+    instance_id: str,
+    camera_type: str,
+    current_user: User = Depends(get_current_user)
+):
+    from app.camera_manager import camera_manager
+    device_path = await camera_manager.switch_camera(instance_id, camera_type)
+    logger.info(f"Switched to {camera_type} camera for instance {instance_id}")
+    return {"message": f"Switched to {camera_type} camera", "device_path": device_path}
+
+
+@app.post("/api/instances/{instance_id}/set-gps")
+@limiter.limit("10/minute")
+async def set_gps_location(
+    request: Request,
+    instance_id: str,
+    gps_request: SetGPSRequest,
+    current_user: User = Depends(get_current_user)
+):
+    success = await docker_manager.set_gps_location(instance_id, gps_request.latitude, gps_request.longitude)
+    if success:
+        return {"message": f"GPS location set to ({gps_request.latitude}, {gps_request.longitude})"}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to set GPS location")
+
+
+@app.post("/api/instances/{instance_id}/set-network-throttling")
+@limiter.limit("10/minute")
+async def set_network_throttling(
+    request: Request,
+    instance_id: str,
+    preset: str,
+    current_user: User = Depends(get_current_user)
+):
+    success = await docker_manager.set_network_throttling(instance_id, preset)
+    if success:
+        return {"message": f"Network throttling set to {preset}"}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to set network throttling")
+
     return {"message": "Instance deleted successfully"}
 
 

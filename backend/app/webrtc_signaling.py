@@ -191,6 +191,9 @@ class WebRTCSignaling:
                     
                 elif message_type == "ping":
                     await websocket.send_json({"type": "pong"})
+                    
+                elif message_type == "gamepad":
+                    await self.handle_gamepad(instance_id, message)
                 
         except Exception as e:
             logger.error(f"WebSocket error for instance {instance_id}, connection {connection_id}: {e}")
@@ -282,6 +285,51 @@ class WebRTCSignaling:
                 "type": "error",
                 "message": str(e)
             })
+    
+    async def handle_gamepad(self, instance_id: str, data: dict):
+        from app.main import docker_manager
+        
+        button = data.get("button")
+        pressed = data.get("pressed", False)
+        
+        button_mapping = {
+            0: 96,   # A button -> BUTTON_A (important-comment)
+            1: 97,   # B button -> BUTTON_B (important-comment)
+            2: 99,   # X button -> BUTTON_X (important-comment)
+            3: 100,  # Y button -> BUTTON_Y (important-comment)
+            4: 102,  # L1 -> BUTTON_L1 (important-comment)
+            5: 103,  # R1 -> BUTTON_R1 (important-comment)
+            6: 104,  # L2 -> BUTTON_L2 (important-comment)
+            7: 105,  # R2 -> BUTTON_R2 (important-comment)
+            8: 109,  # Select -> BUTTON_SELECT (important-comment)
+            9: 108,  # Start -> BUTTON_START (important-comment)
+            10: 106, # L3 -> BUTTON_THUMBL (important-comment)
+            11: 107, # R3 -> BUTTON_THUMBR (important-comment)
+            12: 19,  # D-pad up -> DPAD_UP (important-comment)
+            13: 20,  # D-pad down -> DPAD_DOWN (important-comment)
+            14: 21,  # D-pad left -> DPAD_LEFT (important-comment)
+            15: 22,  # D-pad right -> DPAD_RIGHT (important-comment)
+        }
+        
+        if button in button_mapping:
+            keycode = button_mapping[button]
+            
+            try:
+                instance = docker_manager.get_instance(instance_id)
+                if instance:
+                    container = await asyncio.to_thread(
+                        docker_manager.client.containers.get,
+                        instance["container_id"]
+                    )
+                    
+                    await asyncio.to_thread(
+                        container.exec_run,
+                        cmd=f"sh -c 'input keyevent {keycode}'"
+                    )
+                    
+                    logger.debug(f"Gamepad button {button} sent to instance {instance_id}")
+            except Exception as e:
+                logger.error(f"Failed to send gamepad event: {e}")
     
     async def handle_ice_candidate(self, instance_id: str, connection_id: str, message: dict):
         logger.info(f"Received ICE candidate for instance {instance_id}, connection {connection_id}")

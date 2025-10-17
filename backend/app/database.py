@@ -56,6 +56,19 @@ class Session(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class Snapshot(Base):
+    __tablename__ = "snapshots"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    instance_id = Column(String, nullable=False, index=True)
+    snapshot_name = Column(String, nullable=False)
+    snapshot_image_id = Column(String, nullable=False)
+    description = Column(String, nullable=True)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    size_mb = Column(Integer, nullable=True)
+
+
 Base.metadata.create_all(bind=engine)
 
 

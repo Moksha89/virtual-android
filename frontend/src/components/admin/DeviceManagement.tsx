@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Smartphone, Loader2, Plus, UserCheck, UserX } from 'lucide-react';
+import { Smartphone, Loader2, Plus, UserCheck, UserX, Camera } from 'lucide-react';
 import { InstanceCreator } from '@/components/InstanceCreator';
 
 interface Device {
@@ -30,6 +30,8 @@ export function DeviceManagement() {
   const [showCreator, setShowCreator] = useState(false);
   const [assigningDevice, setAssigningDevice] = useState<string | null>(null);
   const [selectedUserId, setSelectedUserId] = useState<string>('');
+  const [creatingSnapshot, setCreatingSnapshot] = useState<string | null>(null);
+  const [snapshotName, setSnapshotName] = useState('');
   
   const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
   const token = localStorage.getItem('token');
@@ -228,6 +230,82 @@ export function DeviceManagement() {
                     </Button>
                   </div>
                 ) : null}
+                {creatingSnapshot === device.id ? (
+                  <div className="flex gap-2 items-center">
+                    <input
+                      type="text"
+                      value={snapshotName}
+                      onChange={(e) => setSnapshotName(e.target.value)}
+                      placeholder="Snapshot name"
+                      className="px-3 py-1 border border-slate-200 rounded text-sm"
+                    />
+                    <Button
+                      size="sm"
+                      onClick={async () => {
+                        try {
+                          await fetch(`${backendUrl}/api/instances/${device.id}/snapshots`, {
+                            method: 'POST',
+                            headers: {
+                              'Content-Type': 'application/json',
+                              'Authorization': `Bearer ${token}`
+                            },
+                            body: JSON.stringify({
+                              snapshot_name: snapshotName,
+                              description: `Snapshot of ${device.id}`
+                            })
+                          });
+                          setCreatingSnapshot(null);
+                          setSnapshotName('');
+                          alert('Snapshot created successfully');
+                        } catch (error) {
+                          console.error('Failed to create snapshot:', error);
+                        }
+                      }}
+                      disabled={!snapshotName}
+                      className="bg-blue-500 hover:bg-blue-600 text-white"
+                    >
+                      Save
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        setCreatingSnapshot(null);
+                        setSnapshotName('');
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                ) : (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCreatingSnapshot(device.id)}
+                    className="bg-white border-slate-200 text-slate-700 hover:bg-blue-50 hover:border-blue-300 hover:text-blue-700"
+                  >
+                    <Camera className="w-4 h-4 mr-2" />
+                    Create Snapshot
+                  </Button>
+                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={async () => {
+                    try {
+                      await fetch(`${backendUrl}/api/instances/${device.id}/install-fdroid`, {
+                        method: 'POST',
+                        headers: { 'Authorization': `Bearer ${token}` }
+                      });
+                      alert('F-Droid installation started. It may take a few minutes.');
+                    } catch (error) {
+                      console.error('Failed to install F-Droid:', error);
+                    }
+                  }}
+                  className="bg-white border-slate-200 text-slate-700 hover:bg-green-50 hover:border-green-300 hover:text-green-700"
+                >
+                  📱 Install F-Droid
+                </Button>
                 <Button
                   variant="outline"
                   size="sm"
