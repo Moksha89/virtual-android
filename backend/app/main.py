@@ -162,7 +162,6 @@ class SnapshotResponse(BaseModel):
 class SetGPSRequest(BaseModel):
     latitude: float
     longitude: float
-    key_name: str
 
 
 @app.post("/api/auth/login", response_model=LoginResponse)
