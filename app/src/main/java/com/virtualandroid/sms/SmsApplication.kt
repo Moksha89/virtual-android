@@ -4,6 +4,7 @@ import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.os.Build
+import com.virtualandroid.sms.data.MmsRepository
 import com.virtualandroid.sms.data.SmsRepository
 import com.virtualandroid.sms.util.PreferencesManager
 
@@ -15,12 +16,16 @@ class SmsApplication : Application() {
     lateinit var smsRepository: SmsRepository
         private set
 
+    lateinit var mmsRepository: MmsRepository
+        private set
+
     override fun onCreate() {
         super.onCreate()
         instance = this
 
         preferencesManager = PreferencesManager(this)
         smsRepository = SmsRepository(this)
+        mmsRepository = MmsRepository(this)
 
         createNotificationChannels()
     }
