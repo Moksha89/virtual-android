@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Virtual SMS</string>
+    
+    <!-- Main Screen -->
+    <string name="inbox">Inbox</string>
+    <string name="sent">Sent</string>
+    <string name="all_messages">All Messages</string>
+    <string name="conversations">Conversations</string>
+    <string name="no_messages">No messages yet</string>
+    <string name="compose_message">Compose Message</string>
+    
+    <!-- Compose Screen -->
+    <string name="to">To</string>
+    <string name="enter_phone_number">Enter phone number</string>
+    <string name="type_message">Type a message</string>
+    <string name="send">Send</string>
+    <string name="sending">Sending...</string>
+    <string name="message_sent">Message sent</string>
+    <string name="message_failed">Failed to send message</string>
+    
+    <!-- Conversation Screen -->
+    <string name="conversation">Conversation</string>
+    <string name="delete_conversation">Delete Conversation</string>
+    <string name="delete_message">Delete Message</string>
+    
+    <!-- Settings -->
+    <string name="settings">Settings</string>
+    <string name="sync_settings">Sync Settings</string>
+    <string name="enable_sync">Enable SMS Sync</string>
+    <string name="sync_enabled">Sync is enabled</string>
+    <string name="sync_disabled">Sync is disabled</string>
+    <string name="sync_now">Sync Now</string>
+    <string name="last_sync">Last sync: %s</string>
+    <string name="never_synced">Never synced</string>
+    <string name="server_url">Server URL</string>
+    <string name="api_key">API Key</string>
+    <string name="save">Save</string>
+    <string name="cancel">Cancel</string>
+    
+    <!-- Permissions -->
+    <string name="permissions_required">Permissions Required</string>
+    <string name="sms_permission_rationale">This app needs SMS permissions to read, send, and manage your messages.</string>
+    <string name="contacts_permission_rationale">Contact permission helps identify message senders.</string>
+    <string name="notification_permission_rationale">Notification permission is needed to alert you of new messages.</string>
+    <string name="grant_permissions">Grant Permissions</string>
+    <string name="set_as_default">Set as Default SMS App</string>
+    <string name="default_sms_rationale">To fully manage your SMS messages, this app needs to be set as your default SMS app.</string>
+    
+    <!-- Notifications -->
+    <string name="new_message">New Message</string>
+    <string name="new_message_from">New message from %s</string>
+    <string name="sync_in_progress">Syncing messages...</string>
+    <string name="sync_complete">Sync complete</string>
+    <string name="notification_channel_messages">Messages</string>
+    <string name="notification_channel_sync">Sync Status</string>
+    
+    <!-- Consent -->
+    <string name="consent_title">Data Usage Consent</string>
+    <string name="consent_message">This app will read and manage your SMS messages. If sync is enabled, messages will be securely uploaded to the configured server. You can disable sync at any time in Settings.</string>
+    <string name="i_agree">I Agree</string>
+    <string name="i_disagree">I Disagree</string>
+    
+    <!-- Errors -->
+    <string name="error_loading_messages">Error loading messages</string>
+    <string name="error_sending_message">Error sending message</string>
+    <string name="error_sync_failed">Sync failed</string>
+    <string name="error_invalid_phone">Invalid phone number</string>
+    <string name="error_empty_message">Message cannot be empty</string>
+</resources>
