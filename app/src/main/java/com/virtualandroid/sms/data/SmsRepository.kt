@@ -295,6 +295,85 @@ class SmsRepository(private val context: Context) {
         return null
     }
 
+    fun getOrCreateThreadId(address: String): Long {
+        if (address.isBlank()) return -1L
+
+        try {
+            // First try to find existing thread
+            contentResolver.query(
+                Telephony.Sms.CONTENT_URI,
+                arrayOf(Telephony.Sms.THREAD_ID),
+                "${Telephony.Sms.ADDRESS} = ?",
+                arrayOf(address),
+                "${Telephony.Sms.DATE} DESC LIMIT 1"
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val threadId = cursor.getLong(0)
+                    if (threadId > 0) return threadId
+                }
+            }
+
+            // If no existing thread, use Telephony.Threads to get/create one
+            val threadUri = Telephony.Threads.getOrCreateThreadId(context, address)
+            return threadUri
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        return -1L
+    }
+
+    suspend fun getMessagesByAddress(address: String): List<SmsMessage> = withContext(Dispatchers.IO) {
+        val messages = mutableListOf<SmsMessage>()
+        val projection = arrayOf(
+            Telephony.Sms._ID,
+            Telephony.Sms.THREAD_ID,
+            Telephony.Sms.ADDRESS,
+            Telephony.Sms.BODY,
+            Telephony.Sms.DATE,
+            Telephony.Sms.TYPE,
+            Telephony.Sms.READ,
+            Telephony.Sms.STATUS
+        )
+
+        try {
+            contentResolver.query(
+                Telephony.Sms.CONTENT_URI,
+                projection,
+                "${Telephony.Sms.ADDRESS} = ?",
+                arrayOf(address),
+                "${Telephony.Sms.DATE} ASC"
+            )?.use { cursor ->
+                while (cursor.moveToNext()) {
+                    val addr = cursor.getString(cursor.getColumnIndexOrThrow(Telephony.Sms.ADDRESS)) ?: ""
+                    val contactName = getContactName(addr)
+
+                    messages.add(
+                        SmsMessage(
+                            id = cursor.getLong(cursor.getColumnIndexOrThrow(Telephony.Sms._ID)),
+                            threadId = cursor.getLong(cursor.getColumnIndexOrThrow(Telephony.Sms.THREAD_ID)),
+                            address = addr,
+                            body = cursor.getString(cursor.getColumnIndexOrThrow(Telephony.Sms.BODY)) ?: "",
+                            date = Date(cursor.getLong(cursor.getColumnIndexOrThrow(Telephony.Sms.DATE))),
+                            type = SmsMessage.MessageType.fromValue(
+                                cursor.getInt(cursor.getColumnIndexOrThrow(Telephony.Sms.TYPE))
+                            ),
+                            read = cursor.getInt(cursor.getColumnIndexOrThrow(Telephony.Sms.READ)) == 1,
+                            status = SmsMessage.MessageStatus.fromValue(
+                                cursor.getInt(cursor.getColumnIndexOrThrow(Telephony.Sms.STATUS))
+                            ),
+                            contactName = contactName
+                        )
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        messages
+    }
+
     private data class ThreadInfo(
         val address: String,
         val date: Date,

@@ -81,18 +81,26 @@ class ConversationActivity : AppCompatActivity() {
     }
 
     private fun loadMessages() {
-        if (threadId == -1L) {
-            // New conversation, no messages to load
-            return
-        }
-
         binding.progressBar.visibility = View.VISIBLE
 
         val app = application as SmsApplication
 
         lifecycleScope.launch {
             try {
-                val messages = app.smsRepository.getMessages(threadId)
+                val messages = if (threadId != -1L) {
+                    app.smsRepository.getMessages(threadId)
+                } else if (address.isNotEmpty()) {
+                    // New conversation or no thread ID - try to load by address
+                    val msgsByAddress = app.smsRepository.getMessagesByAddress(address)
+                    // Update threadId if we found messages
+                    if (msgsByAddress.isNotEmpty()) {
+                        threadId = msgsByAddress.first().threadId
+                    }
+                    msgsByAddress
+                } else {
+                    emptyList()
+                }
+
                 messageAdapter.submitList(messages)
 
                 // Scroll to bottom
@@ -100,8 +108,10 @@ class ConversationActivity : AppCompatActivity() {
                     binding.rvMessages.scrollToPosition(messages.size - 1)
                 }
 
-                // Mark as read
-                app.smsRepository.markAsRead(threadId)
+                // Mark as read if we have a valid thread
+                if (threadId != -1L) {
+                    app.smsRepository.markAsRead(threadId)
+                }
             } catch (e: Exception) {
                 e.printStackTrace()
                 Toast.makeText(
