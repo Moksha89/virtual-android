@@ -10,22 +10,39 @@ import retrofit2.http.Query
 
 interface SmsApiService {
 
-    @POST("sms/upload")
+    @POST("api/register")
+    suspend fun registerDevice(
+        @Body request: RegisterRequest
+    ): Response<RegisterResponse>
+
+    @POST("api/sync")
     suspend fun uploadMessages(
-        @Header("Authorization") apiKey: String,
+        @Header("Authorization") token: String,
         @Body request: SyncRequest
     ): Response<SyncResponse>
 
-    @GET("sms/sync")
+    @GET("api/messages")
     suspend fun getMessages(
-        @Header("Authorization") apiKey: String,
+        @Header("Authorization") token: String,
         @Query("device_id") deviceId: String,
         @Query("since") since: Long? = null
     ): Response<List<SyncMessage>>
 
-    @DELETE("sms/purge")
+    @DELETE("api/purge")
     suspend fun purgeMessages(
-        @Header("Authorization") apiKey: String,
+        @Header("Authorization") token: String,
         @Query("device_id") deviceId: String
     ): Response<SyncResponse>
 }
+
+data class RegisterRequest(
+    val device_id: String,
+    val device_name: String,
+    val invite_passkey: String
+)
+
+data class RegisterResponse(
+    val success: Boolean,
+    val device_token: String?,
+    val message: String
+)

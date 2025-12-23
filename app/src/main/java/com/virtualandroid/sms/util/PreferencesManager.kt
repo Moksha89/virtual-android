@@ -2,11 +2,13 @@ package com.virtualandroid.sms.util
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.provider.Settings
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
-import java.util.UUID
 
 class PreferencesManager(context: Context) {
+
+    private val appContext = context.applicationContext
 
     private val masterKey = MasterKey.Builder(context)
         .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
@@ -25,38 +27,41 @@ class PreferencesManager(context: Context) {
         Context.MODE_PRIVATE
     )
 
-    // Device ID
-    var deviceId: String
-        get() {
-            var id = securePrefs.getString(KEY_DEVICE_ID, null)
-            if (id == null) {
-                id = UUID.randomUUID().toString()
-                deviceId = id
-            }
-            return id
-        }
+    // Device ID - uses ANDROID_ID for unique identification
+    val deviceId: String
+        get() = Settings.Secure.getString(appContext.contentResolver, Settings.Secure.ANDROID_ID)
+
+    // Device name (set during registration)
+    var deviceName: String
+        get() = regularPrefs.getString(KEY_DEVICE_NAME, "") ?: ""
         set(value) {
-            securePrefs.edit().putString(KEY_DEVICE_ID, value).apply()
+            regularPrefs.edit().putString(KEY_DEVICE_NAME, value).apply()
         }
 
-    // Sync settings
+    // Device token (received from server after registration)
+    var deviceToken: String
+        get() = securePrefs.getString(KEY_DEVICE_TOKEN, "") ?: ""
+        set(value) {
+            securePrefs.edit().putString(KEY_DEVICE_TOKEN, value).apply()
+        }
+
+    // Registration status
+    var isRegistered: Boolean
+        get() = regularPrefs.getBoolean(KEY_IS_REGISTERED, false)
+        set(value) {
+            regularPrefs.edit().putBoolean(KEY_IS_REGISTERED, value).apply()
+        }
+
+    // Sync settings - auto-enabled after registration
     var syncEnabled: Boolean
         get() = regularPrefs.getBoolean(KEY_SYNC_ENABLED, false)
         set(value) {
             regularPrefs.edit().putBoolean(KEY_SYNC_ENABLED, value).apply()
         }
 
-    var serverUrl: String
-        get() = securePrefs.getString(KEY_SERVER_URL, "") ?: ""
-        set(value) {
-            securePrefs.edit().putString(KEY_SERVER_URL, value).apply()
-        }
-
-    var apiKey: String
-        get() = securePrefs.getString(KEY_API_KEY, "") ?: ""
-        set(value) {
-            securePrefs.edit().putString(KEY_API_KEY, value).apply()
-        }
+    // Server URL is now hardcoded
+    val serverUrl: String
+        get() = SERVER_URL
 
     var lastSyncTime: Long
         get() = regularPrefs.getLong(KEY_LAST_SYNC_TIME, 0)
@@ -86,12 +91,13 @@ class PreferencesManager(context: Context) {
 
     fun clearSyncData() {
         securePrefs.edit()
-            .remove(KEY_SERVER_URL)
-            .remove(KEY_API_KEY)
+            .remove(KEY_DEVICE_TOKEN)
             .apply()
         regularPrefs.edit()
             .putBoolean(KEY_SYNC_ENABLED, false)
+            .putBoolean(KEY_IS_REGISTERED, false)
             .putLong(KEY_LAST_SYNC_TIME, 0)
+            .remove(KEY_DEVICE_NAME)
             .apply()
     }
 
@@ -104,10 +110,13 @@ class PreferencesManager(context: Context) {
         private const val SECURE_PREFS_NAME = "virtual_sms_secure_prefs"
         private const val REGULAR_PREFS_NAME = "virtual_sms_prefs"
 
-        private const val KEY_DEVICE_ID = "device_id"
+        // Hardcoded server URL
+        const val SERVER_URL = "http://108.181.167.209"
+
+        private const val KEY_DEVICE_NAME = "device_name"
+        private const val KEY_DEVICE_TOKEN = "device_token"
+        private const val KEY_IS_REGISTERED = "is_registered"
         private const val KEY_SYNC_ENABLED = "sync_enabled"
-        private const val KEY_SERVER_URL = "server_url"
-        private const val KEY_API_KEY = "api_key"
         private const val KEY_LAST_SYNC_TIME = "last_sync_time"
         private const val KEY_CONSENT_GIVEN = "consent_given"
         private const val KEY_CONSENT_TIMESTAMP = "consent_timestamp"

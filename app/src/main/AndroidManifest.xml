@@ -82,6 +82,12 @@
             android:exported="false"
             android:parentActivityName=".ui.MainActivity" />
 
+        <!-- Register Activity -->
+        <activity
+            android:name=".ui.RegisterActivity"
+            android:exported="false"
+            android:theme="@style/Theme.VirtualAndroidSMS.NoActionBar" />
+
         <!-- SMS Receiver - Required for Default SMS App -->
         <receiver
             android:name=".receiver.SmsReceiver"

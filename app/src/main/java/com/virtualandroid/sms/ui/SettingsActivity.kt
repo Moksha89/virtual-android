@@ -1,5 +1,6 @@
 package com.virtualandroid.sms.ui
 
+import android.content.Intent
 import android.os.Bundle
 import android.view.MenuItem
 import android.widget.Toast
@@ -67,12 +68,18 @@ class SettingsActivity : AppCompatActivity() {
 
         binding.switchSync.setOnCheckedChangeListener { _, isChecked ->
             prefs.syncEnabled = isChecked
+            if (isChecked && prefs.isRegistered) {
+                SmsSyncService.start(this)
+            } else {
+                SmsSyncService.stop(this)
+            }
             updateSyncUI()
         }
 
-        binding.btnSaveSettings.setOnClickListener {
-            saveSettings()
-        }
+        // Hide server URL and API key fields - they're now automatic
+        binding.tilServerUrl.visibility = android.view.View.GONE
+        binding.tilApiKey.visibility = android.view.View.GONE
+        binding.btnSaveSettings.visibility = android.view.View.GONE
 
         binding.btnSyncNow.setOnClickListener {
             triggerSync()
@@ -90,8 +97,6 @@ class SettingsActivity : AppCompatActivity() {
         val prefs = app.preferencesManager
 
         binding.switchSync.isChecked = prefs.syncEnabled
-        binding.etServerUrl.setText(prefs.serverUrl)
-        binding.etApiKey.setText(prefs.apiKey)
 
         updateSyncUI()
     }
@@ -101,63 +106,39 @@ class SettingsActivity : AppCompatActivity() {
         val prefs = app.preferencesManager
 
         val syncEnabled = prefs.syncEnabled
-        binding.tilServerUrl.isEnabled = syncEnabled
-        binding.tilApiKey.isEnabled = syncEnabled
-        binding.btnSaveSettings.isEnabled = syncEnabled
-        binding.btnSyncNow.isEnabled = syncEnabled && prefs.serverUrl.isNotBlank() && prefs.apiKey.isNotBlank()
+        binding.btnSyncNow.isEnabled = syncEnabled && prefs.isRegistered
 
         val lastSync = prefs.lastSyncTime
         binding.tvLastSync.text = getString(R.string.last_sync, DateUtils.formatSyncTime(lastSync))
-    }
 
-    private fun saveSettings() {
-        val app = application as SmsApplication
-        val prefs = app.preferencesManager
-
-        val serverUrl = binding.etServerUrl.text?.toString()?.trim() ?: ""
-        val apiKey = binding.etApiKey.text?.toString()?.trim() ?: ""
-
-        // Validate
-        if (serverUrl.isBlank()) {
-            binding.tilServerUrl.error = "Server URL is required"
-            return
-        } else {
-            binding.tilServerUrl.error = null
+        // Show device info
+        if (prefs.isRegistered) {
+            binding.tvDefaultSmsStatus.text = buildString {
+                append("Device: ${prefs.deviceName}\n")
+                append("Status: Registered\n")
+                append("Sync: ${if (syncEnabled) "Active (every 5 sec)" else "Paused"}")
+            }
         }
-
-        if (apiKey.isBlank()) {
-            binding.tilApiKey.error = "API Key is required"
-            return
-        } else {
-            binding.tilApiKey.error = null
-        }
-
-        // Save
-        prefs.serverUrl = serverUrl
-        prefs.apiKey = apiKey
-
-        Toast.makeText(this, "Settings saved", Toast.LENGTH_SHORT).show()
-        updateSyncUI()
     }
 
     private fun triggerSync() {
         val app = application as SmsApplication
         val prefs = app.preferencesManager
 
-        if (prefs.serverUrl.isBlank() || prefs.apiKey.isBlank()) {
-            Toast.makeText(this, "Please configure server URL and API key first", Toast.LENGTH_SHORT).show()
+        if (!prefs.isRegistered) {
+            Toast.makeText(this, "Device not registered", Toast.LENGTH_SHORT).show()
             return
         }
 
         SmsSyncService.start(this)
-        Toast.makeText(this, "Sync started", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "Sync service started", Toast.LENGTH_SHORT).show()
     }
 
     private fun showClearDataConfirmation() {
         MaterialAlertDialogBuilder(this)
-            .setTitle("Clear Sync Data")
-            .setMessage("This will clear your sync settings and history. Your SMS messages will not be affected.")
-            .setPositiveButton("Clear") { _, _ ->
+            .setTitle("Logout & Clear Data")
+            .setMessage("This will log out your device and clear all sync data. You will need to register again.")
+            .setPositiveButton("Logout") { _, _ ->
                 clearSyncData()
             }
             .setNegativeButton(R.string.cancel, null)
@@ -166,11 +147,20 @@ class SettingsActivity : AppCompatActivity() {
 
     private fun clearSyncData() {
         val app = application as SmsApplication
+        
+        // Stop sync service
+        SmsSyncService.stop(this)
+        
+        // Clear data
         app.preferencesManager.clearSyncData()
 
-        // Reload UI
-        loadSettings()
-        Toast.makeText(this, "Sync data cleared", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "Logged out successfully", Toast.LENGTH_SHORT).show()
+        
+        // Go to register activity
+        val intent = Intent(this, RegisterActivity::class.java)
+        intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+        startActivity(intent)
+        finish()
     }
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {

@@ -43,6 +43,15 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Check if registered first
+        val app = application as SmsApplication
+        if (!app.preferencesManager.isRegistered || app.preferencesManager.deviceToken.isBlank()) {
+            startActivity(Intent(this, RegisterActivity::class.java))
+            finish()
+            return
+        }
+
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 

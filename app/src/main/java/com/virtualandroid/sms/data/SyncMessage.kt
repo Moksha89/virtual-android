@@ -32,9 +32,6 @@ data class SyncMessage(
 )
 
 data class SyncRequest(
-    @SerializedName("device_id")
-    val deviceId: String,
-
     @SerializedName("messages")
     val messages: List<SyncMessage>
 )
