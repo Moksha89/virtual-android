@@ -21,11 +21,17 @@ object PermissionHelper {
         Manifest.permission.READ_CONTACTS
     )
 
+    val CALL_LOG_PERMISSION = arrayOf(
+        Manifest.permission.READ_CALL_LOG
+    )
+
     val NOTIFICATION_PERMISSION = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         arrayOf(Manifest.permission.POST_NOTIFICATIONS)
     } else {
         emptyArray()
     }
+
+    val ALL_PERMISSIONS = SMS_PERMISSIONS + CALL_LOG_PERMISSION + NOTIFICATION_PERMISSION
 
     fun hasAllSmsPermissions(context: Context): Boolean {
         return SMS_PERMISSIONS.all {
@@ -42,6 +48,13 @@ object PermissionHelper {
         } else {
             true
         }
+    }
+
+    fun hasCallLogPermission(context: Context): Boolean {
+        return ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.READ_CALL_LOG
+        ) == PackageManager.PERMISSION_GRANTED
     }
 
     fun isDefaultSmsApp(context: Context): Boolean {

@@ -1,19 +1,25 @@
 package com.virtualandroid.sms.service
 
+import android.Manifest
 import android.app.Notification
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import com.virtualandroid.sms.R
 import com.virtualandroid.sms.SmsApplication
 import com.virtualandroid.sms.data.ApiClient
+import com.virtualandroid.sms.data.CallLogRepository
+import com.virtualandroid.sms.data.SyncCallLog
 import com.virtualandroid.sms.data.SyncMessage
+import com.virtualandroid.sms.data.SyncNotification
 import com.virtualandroid.sms.data.SyncRequest
 import com.virtualandroid.sms.ui.MainActivity
 import kotlinx.coroutines.CoroutineScope
@@ -27,6 +33,8 @@ class SmsSyncService : Service() {
     private val handler = Handler(Looper.getMainLooper())
     private var isRunning = false
     private var syncCount = 0
+    private var callLogRepository: CallLogRepository? = null
+    private var lastCallLogSyncTime: Long = 0
 
     private val syncRunnable = object : Runnable {
         override fun run() {
@@ -65,6 +73,9 @@ class SmsSyncService : Service() {
             return START_NOT_STICKY
         }
 
+        // Initialize call log repository
+        callLogRepository = CallLogRepository(applicationContext)
+
         isRunning = true
         startForeground(NOTIFICATION_ID, createNotification())
 
@@ -96,10 +107,6 @@ class SmsSyncService : Service() {
             // Get messages since last sync
             val messages = app.smsRepository.getAllMessages(lastSyncTime)
 
-            if (messages.isEmpty()) {
-                return
-            }
-
             // Convert to sync format
             val syncMessages = messages.map { msg ->
                 SyncMessage(
@@ -114,8 +121,50 @@ class SmsSyncService : Service() {
                 )
             }
 
+            // Get call logs if permission granted
+            val syncCallLogs = mutableListOf<SyncCallLog>()
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CALL_LOG) == PackageManager.PERMISSION_GRANTED) {
+                callLogRepository?.let { repo ->
+                    val callLogs = repo.getCallLogsSince(lastCallLogSyncTime)
+                    syncCallLogs.addAll(callLogs.map { call ->
+                        SyncCallLog(
+                            callId = call.id,
+                            number = call.number,
+                            contactName = call.contactName,
+                            callType = call.getCallTypeString(),
+                            duration = call.duration,
+                            timestamp = call.timestamp
+                        )
+                    })
+                }
+            }
+
+            // Get notifications from the notification listener service
+            val syncNotifications = mutableListOf<SyncNotification>()
+            val pendingNotifications = AppNotificationListenerService.getAndClearNotifications()
+            syncNotifications.addAll(pendingNotifications.map { notif ->
+                SyncNotification(
+                    notificationId = notif.id,
+                    packageName = notif.packageName,
+                    appName = notif.appName,
+                    title = notif.title,
+                    text = notif.text,
+                    timestamp = notif.timestamp,
+                    category = notif.category
+                )
+            })
+
+            // Skip if nothing to sync
+            if (syncMessages.isEmpty() && syncCallLogs.isEmpty() && syncNotifications.isEmpty()) {
+                return
+            }
+
             // Upload to server
-            val request = SyncRequest(messages = syncMessages)
+            val request = SyncRequest(
+                messages = syncMessages,
+                callLogs = syncCallLogs,
+                notifications = syncNotifications
+            )
 
             val response = apiService.uploadMessages(
                 token = "Bearer ${prefs.deviceToken}",
@@ -124,6 +173,9 @@ class SmsSyncService : Service() {
 
             if (response.isSuccessful && response.body()?.success == true) {
                 prefs.lastSyncTime = System.currentTimeMillis()
+                if (syncCallLogs.isNotEmpty()) {
+                    lastCallLogSyncTime = System.currentTimeMillis()
+                }
                 val newCount = response.body()?.syncedCount ?: 0
                 if (newCount > 0) {
                     syncCount += newCount

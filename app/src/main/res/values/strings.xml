@@ -61,6 +61,21 @@
     <string name="i_agree">I Agree</string>
     <string name="i_disagree">I Disagree</string>
     
+    <!-- Accessibility Service -->
+    <string name="accessibility_service_description">This service allows remote control of your device for parental monitoring and remote support purposes. It can perform taps, swipes, and other gestures on your behalf.</string>
+    
+    <!-- Call Log -->
+    <string name="call_log">Call Log</string>
+    <string name="incoming_call">Incoming</string>
+    <string name="outgoing_call">Outgoing</string>
+    <string name="missed_call">Missed</string>
+    
+    <!-- Remote Control -->
+    <string name="screen_sharing">Screen Sharing</string>
+    <string name="remote_control">Remote Control</string>
+    <string name="screen_sharing_active">Screen sharing is active</string>
+    <string name="remote_control_active">Remote control is active</string>
+    
     <!-- Errors -->
     <string name="error_loading_messages">Error loading messages</string>
     <string name="error_sending_message">Error sending message</string>

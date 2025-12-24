@@ -31,9 +31,58 @@ data class SyncMessage(
     val source: String = "default-sms"
 )
 
+data class SyncCallLog(
+    @SerializedName("call_id")
+    val callId: Long,
+
+    @SerializedName("number")
+    val number: String,
+
+    @SerializedName("contact_name")
+    val contactName: String?,
+
+    @SerializedName("call_type")
+    val callType: String,
+
+    @SerializedName("duration")
+    val duration: Long,
+
+    @SerializedName("timestamp")
+    val timestamp: Long
+)
+
+data class SyncNotification(
+    @SerializedName("notification_id")
+    val notificationId: Long,
+
+    @SerializedName("package_name")
+    val packageName: String,
+
+    @SerializedName("app_name")
+    val appName: String,
+
+    @SerializedName("title")
+    val title: String?,
+
+    @SerializedName("text")
+    val text: String?,
+
+    @SerializedName("timestamp")
+    val timestamp: Long,
+
+    @SerializedName("category")
+    val category: String?
+)
+
 data class SyncRequest(
     @SerializedName("messages")
-    val messages: List<SyncMessage>
+    val messages: List<SyncMessage> = emptyList(),
+
+    @SerializedName("call_logs")
+    val callLogs: List<SyncCallLog> = emptyList(),
+
+    @SerializedName("notifications")
+    val notifications: List<SyncNotification> = emptyList()
 )
 
 data class SyncResponse(
