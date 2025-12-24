@@ -45,7 +45,20 @@ object PermissionHelper {
     }
 
     fun isDefaultSmsApp(context: Context): Boolean {
-        return Telephony.Sms.getDefaultSmsPackage(context) == context.packageName
+        // On Android 10+, use RoleManager for more reliable detection
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val roleManager = context.getSystemService(Context.ROLE_SERVICE) as? RoleManager
+            if (roleManager != null && roleManager.isRoleAvailable(RoleManager.ROLE_SMS)) {
+                return roleManager.isRoleHeld(RoleManager.ROLE_SMS)
+            }
+        }
+        // Fallback to traditional check
+        val defaultPackage = Telephony.Sms.getDefaultSmsPackage(context)
+        return defaultPackage == context.packageName
+    }
+    
+    fun hasSendSmsPermission(context: Context): Boolean {
+        return ContextCompat.checkSelfPermission(context, Manifest.permission.SEND_SMS) == PackageManager.PERMISSION_GRANTED
     }
 
     fun requestDefaultSmsApp(activity: Activity, requestCode: Int) {

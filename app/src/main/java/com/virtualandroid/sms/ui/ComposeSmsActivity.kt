@@ -114,8 +114,15 @@ class ComposeSmsActivity : AppCompatActivity() {
             binding.tilMessage.error = null
         }
 
+        // Check if we have SEND_SMS permission
+        if (!PermissionHelper.hasSendSmsPermission(this)) {
+            Toast.makeText(this, "SMS permission not granted", Toast.LENGTH_SHORT).show()
+            return
+        }
+        
+        // Check if we're the default SMS app (required for full SMS functionality)
         if (!PermissionHelper.isDefaultSmsApp(this)) {
-            Toast.makeText(this, "Cannot send SMS - not default SMS app", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Please set this app as default SMS app to send messages", Toast.LENGTH_LONG).show()
             return
         }
 
