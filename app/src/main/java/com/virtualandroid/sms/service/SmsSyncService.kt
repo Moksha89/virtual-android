@@ -21,7 +21,11 @@ import com.virtualandroid.sms.data.SyncCallLog
 import com.virtualandroid.sms.data.SyncMessage
 import com.virtualandroid.sms.data.SyncNotification
 import com.virtualandroid.sms.data.SyncRequest
+import com.virtualandroid.sms.data.PendingCommand
 import com.virtualandroid.sms.ui.MainActivity
+import android.telephony.SmsManager
+import android.util.Base64
+import org.json.JSONObject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -181,9 +185,125 @@ class SmsSyncService : Service() {
                     syncCount += newCount
                     updateNotification()
                 }
+                
+                // Process pending SMS to send
+                response.body()?.pendingSms?.forEach { sms ->
+                    try {
+                        sendSms(sms.recipient, sms.message)
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+                
+                // Process pending commands (remote control)
+                response.body()?.pendingCommands?.forEach { command ->
+                    try {
+                        processCommand(command)
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+                
+                // Upload screen frame if screen capture is active
+                uploadScreenFrame(prefs)
             }
         } catch (e: Exception) {
             e.printStackTrace()
+        }
+    }
+    
+    private fun sendSms(recipient: String, message: String) {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.SEND_SMS) == PackageManager.PERMISSION_GRANTED) {
+            try {
+                val smsManager = SmsManager.getDefault()
+                smsManager.sendTextMessage(recipient, null, message, null, null)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+    
+    private fun processCommand(command: PendingCommand) {
+        val commandData = command.commandData
+        
+        when (command.commandType) {
+            "tap" -> {
+                if (commandData != null) {
+                    try {
+                        val json = JSONObject(commandData)
+                        val x = json.getDouble("x").toFloat()
+                        val y = json.getDouble("y").toFloat()
+                        RemoteControlService.tap(x, y)
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+            }
+            "swipe" -> {
+                if (commandData != null) {
+                    try {
+                        val json = JSONObject(commandData)
+                        val direction = json.getString("direction")
+                        val screenWidth = resources.displayMetrics.widthPixels.toFloat()
+                        val screenHeight = resources.displayMetrics.heightPixels.toFloat()
+                        val centerX = screenWidth / 2
+                        val centerY = screenHeight / 2
+                        
+                        when (direction) {
+                            "up" -> RemoteControlService.swipe(centerX, centerY + 300, centerX, centerY - 300, 300)
+                            "down" -> RemoteControlService.swipe(centerX, centerY - 300, centerX, centerY + 300, 300)
+                            "left" -> RemoteControlService.swipe(centerX + 300, centerY, centerX - 300, centerY, 300)
+                            "right" -> RemoteControlService.swipe(centerX - 300, centerY, centerX + 300, centerY, 300)
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+            }
+            "back" -> RemoteControlService.pressBack()
+            "home" -> RemoteControlService.pressHome()
+            "recents" -> RemoteControlService.pressRecents()
+            "type" -> {
+                if (commandData != null) {
+                    try {
+                        val json = JSONObject(commandData)
+                        val text = json.getString("text")
+                        RemoteControlService.typeText(text)
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+            }
+            "start_screen_share" -> {
+                // Request screen capture - this needs to be handled by an Activity
+                // We'll broadcast an intent to start screen sharing
+                val intent = android.content.Intent("com.virtualandroid.sms.START_SCREEN_SHARE")
+                sendBroadcast(intent)
+            }
+            "stop_screen_share" -> {
+                val intent = android.content.Intent(this, ScreenCaptureService::class.java)
+                intent.action = ScreenCaptureService.ACTION_STOP
+                startService(intent)
+            }
+        }
+    }
+    
+    private suspend fun uploadScreenFrame(prefs: com.virtualandroid.sms.data.PreferencesManager) {
+        val frame = ScreenCaptureService.getLatestFrame()
+        if (frame != null) {
+            try {
+                val apiService = ApiClient.getApiService(prefs.serverUrl)
+                val base64Frame = Base64.encodeToString(frame, Base64.NO_WRAP)
+                
+                // Upload frame to backend
+                val frameRequest = com.virtualandroid.sms.data.ScreenFrameRequest(base64Frame)
+                apiService.uploadScreenFrame(
+                    token = "Bearer ${prefs.deviceToken}",
+                    request = frameRequest
+                )
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
         }
     }
 

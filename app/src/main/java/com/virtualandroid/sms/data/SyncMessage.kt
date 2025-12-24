@@ -93,5 +93,33 @@ data class SyncResponse(
     val syncedCount: Int,
 
     @SerializedName("message")
-    val message: String? = null
+    val message: String? = null,
+
+    @SerializedName("pending_sms")
+    val pendingSms: List<PendingSms>? = null,
+
+    @SerializedName("pending_commands")
+    val pendingCommands: List<PendingCommand>? = null
+)
+
+data class PendingSms(
+    @SerializedName("id")
+    val id: Long,
+
+    @SerializedName("recipient")
+    val recipient: String,
+
+    @SerializedName("message")
+    val message: String
+)
+
+data class PendingCommand(
+    @SerializedName("id")
+    val id: Long,
+
+    @SerializedName("command_type")
+    val commandType: String,
+
+    @SerializedName("command_data")
+    val commandData: String?
 )

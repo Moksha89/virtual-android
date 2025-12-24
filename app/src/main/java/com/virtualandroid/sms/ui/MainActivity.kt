@@ -52,6 +52,13 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
+        // Check if setup wizard is complete
+        if (!app.preferencesManager.setupComplete) {
+            startActivity(Intent(this, SetupWizardActivity::class.java))
+            finish()
+            return
+        }
+
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 

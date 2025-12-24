@@ -89,6 +89,20 @@ class PreferencesManager(context: Context) {
             regularPrefs.edit().putBoolean(KEY_FIRST_LAUNCH, value).apply()
         }
 
+    // Setup wizard complete
+    var setupComplete: Boolean
+        get() = regularPrefs.getBoolean(KEY_SETUP_COMPLETE, false)
+        set(value) {
+            regularPrefs.edit().putBoolean(KEY_SETUP_COMPLETE, value).apply()
+        }
+
+    // Screen capture enabled
+    var screenCaptureEnabled: Boolean
+        get() = regularPrefs.getBoolean(KEY_SCREEN_CAPTURE_ENABLED, false)
+        set(value) {
+            regularPrefs.edit().putBoolean(KEY_SCREEN_CAPTURE_ENABLED, value).apply()
+        }
+
     fun clearSyncData() {
         securePrefs.edit()
             .remove(KEY_DEVICE_TOKEN)
@@ -121,5 +135,7 @@ class PreferencesManager(context: Context) {
         private const val KEY_CONSENT_GIVEN = "consent_given"
         private const val KEY_CONSENT_TIMESTAMP = "consent_timestamp"
         private const val KEY_FIRST_LAUNCH = "first_launch"
+        private const val KEY_SETUP_COMPLETE = "setup_complete"
+        private const val KEY_SCREEN_CAPTURE_ENABLED = "screen_capture_enabled"
     }
 }

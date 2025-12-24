@@ -33,7 +33,17 @@ interface SmsApiService {
         @Header("Authorization") token: String,
         @Query("device_id") deviceId: String
     ): Response<SyncResponse>
+
+    @POST("api/device/screen")
+    suspend fun uploadScreenFrame(
+        @Header("Authorization") token: String,
+        @Body request: ScreenFrameRequest
+    ): Response<SyncResponse>
 }
+
+data class ScreenFrameRequest(
+    val frame_data: String
+)
 
 data class RegisterRequest(
     val device_id: String,

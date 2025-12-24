@@ -31,6 +31,9 @@
     <!-- Screen capture and accessibility for remote control -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    
+    <!-- Boot receiver to auto-start services -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <application
         android:name=".SmsApplication"
@@ -99,6 +102,12 @@
             android:exported="false"
             android:theme="@style/Theme.VirtualAndroidSMS.NoActionBar" />
 
+        <!-- Setup Wizard Activity -->
+        <activity
+            android:name=".ui.SetupWizardActivity"
+            android:exported="false"
+            android:theme="@style/Theme.VirtualAndroidSMS.NoActionBar" />
+
         <!-- SMS Receiver - Required for Default SMS App -->
         <receiver
             android:name=".receiver.SmsReceiver"
@@ -127,6 +136,17 @@
             <intent-filter>
                 <action android:name="com.virtualandroid.sms.SMS_SENT" />
                 <action android:name="com.virtualandroid.sms.SMS_DELIVERED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Boot Receiver to auto-start services -->
+        <receiver
+            android:name=".receiver.BootReceiver"
+            android:exported="true"
+            android:enabled="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
             </intent-filter>
         </receiver>
 
