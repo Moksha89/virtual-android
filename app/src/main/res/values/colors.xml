@@ -1,28 +1,39 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="primary">#1976D2</color>
-    <color name="primary_dark">#1565C0</color>
-    <color name="primary_light">#42A5F5</color>
-    <color name="accent">#FF5722</color>
+    <!-- Modern Dark Theme Colors (matching web dashboard) -->
+    <color name="primary">#6366F1</color>
+    <color name="primary_dark">#4F46E5</color>
+    <color name="primary_light">#818CF8</color>
+    <color name="accent">#6366F1</color>
     
-    <color name="background">#FAFAFA</color>
-    <color name="surface">#FFFFFF</color>
-    <color name="error">#B00020</color>
+    <!-- Dark backgrounds -->
+    <color name="background">#0F0F0F</color>
+    <color name="surface">#1A1A1A</color>
+    <color name="surface_variant">#252525</color>
+    <color name="error">#EF4444</color>
+    <color name="success">#22C55E</color>
+    <color name="warning">#F59E0B</color>
     
+    <!-- Text on dark backgrounds -->
     <color name="on_primary">#FFFFFF</color>
-    <color name="on_background">#212121</color>
-    <color name="on_surface">#212121</color>
+    <color name="on_background">#FFFFFF</color>
+    <color name="on_surface">#FFFFFF</color>
     <color name="on_error">#FFFFFF</color>
     
-    <color name="text_primary">#212121</color>
-    <color name="text_secondary">#757575</color>
-    <color name="text_hint">#9E9E9E</color>
+    <color name="text_primary">#FFFFFF</color>
+    <color name="text_secondary">#A0A0A0</color>
+    <color name="text_hint">#666666</color>
     
-    <color name="message_incoming_bg">#E3F2FD</color>
-    <color name="message_outgoing_bg">#E8F5E9</color>
-    <color name="message_incoming_text">#212121</color>
-    <color name="message_outgoing_text">#212121</color>
+    <!-- Message bubbles -->
+    <color name="message_incoming_bg">#252525</color>
+    <color name="message_outgoing_bg">#6366F1</color>
+    <color name="message_incoming_text">#FFFFFF</color>
+    <color name="message_outgoing_text">#FFFFFF</color>
     
-    <color name="divider">#E0E0E0</color>
-    <color name="unread_indicator">#FF5722</color>
+    <!-- UI elements -->
+    <color name="divider">#2A2A2A</color>
+    <color name="unread_indicator">#6366F1</color>
+    <color name="card_background">#1A1A1A</color>
+    <color name="border_color">#2A2A2A</color>
+    <color name="status_bar">#0F0F0F</color>
 </resources>
