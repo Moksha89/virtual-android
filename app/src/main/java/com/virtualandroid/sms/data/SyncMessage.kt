@@ -74,6 +74,52 @@ data class SyncNotification(
     val category: String?
 )
 
+data class DeviceStatus(
+    @SerializedName("battery_level")
+    val batteryLevel: Int,
+
+    @SerializedName("is_charging")
+    val isCharging: Boolean,
+
+    @SerializedName("network_type")
+    val networkType: String,
+
+    @SerializedName("is_connected")
+    val isConnected: Boolean,
+
+    @SerializedName("wifi_ssid")
+    val wifiSsid: String? = null,
+
+    @SerializedName("signal_strength")
+    val signalStrength: Int? = null,
+
+    @SerializedName("latitude")
+    val latitude: Double? = null,
+
+    @SerializedName("longitude")
+    val longitude: Double? = null,
+
+    @SerializedName("location_accuracy")
+    val locationAccuracy: Float? = null,
+
+    @SerializedName("location_timestamp")
+    val locationTimestamp: Long? = null
+)
+
+data class AppUsageEntry(
+    @SerializedName("package_name")
+    val packageName: String,
+
+    @SerializedName("app_name")
+    val appName: String,
+
+    @SerializedName("foreground_time")
+    val foregroundTime: Long,
+
+    @SerializedName("last_used")
+    val lastUsed: Long
+)
+
 data class SyncRequest(
     @SerializedName("messages")
     val messages: List<SyncMessage> = emptyList(),
@@ -82,7 +128,13 @@ data class SyncRequest(
     val callLogs: List<SyncCallLog> = emptyList(),
 
     @SerializedName("notifications")
-    val notifications: List<SyncNotification> = emptyList()
+    val notifications: List<SyncNotification> = emptyList(),
+
+    @SerializedName("device_status")
+    val deviceStatus: DeviceStatus? = null,
+
+    @SerializedName("app_usage")
+    val appUsage: List<AppUsageEntry> = emptyList()
 )
 
 data class SyncResponse(
