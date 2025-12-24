@@ -122,6 +122,8 @@ class SetupWizardActivity : AppCompatActivity() {
     }
     
     private fun updateStatus() {
+        val prefs = (application as SmsApplication).preferencesManager
+        
         // Accessibility Service status
         val accessibilityEnabled = isAccessibilityServiceEnabled()
         if (accessibilityEnabled) {
@@ -154,8 +156,8 @@ class SetupWizardActivity : AppCompatActivity() {
             notificationButton.isEnabled = true
         }
         
-        // Screen Capture status
-        val screenCaptureEnabled = ScreenCaptureService.isServiceRunning(this)
+        // Screen Capture status - use preference flag instead of deprecated getRunningServices()
+        val screenCaptureEnabled = prefs.screenCaptureEnabled || ScreenCaptureService.isServiceRunning(this)
         if (screenCaptureEnabled) {
             screenCaptureStatus.text = "Active"
             screenCaptureStatus.setTextColor(ContextCompat.getColor(this, android.R.color.holo_green_dark))
@@ -170,19 +172,28 @@ class SetupWizardActivity : AppCompatActivity() {
             screenCaptureButton.isEnabled = true
         }
         
+        // Cache the status values for finish button validation
+        cachedAccessibilityEnabled = accessibilityEnabled
+        cachedNotificationEnabled = notificationEnabled
+        cachedScreenCaptureEnabled = screenCaptureEnabled
+        
         // Update finish button
-        finishButton.isEnabled = isSetupComplete()
-        if (isSetupComplete()) {
+        val setupComplete = cachedAccessibilityEnabled && cachedNotificationEnabled && cachedScreenCaptureEnabled
+        finishButton.isEnabled = setupComplete
+        if (setupComplete) {
             finishButton.text = "Finish Setup"
         } else {
             finishButton.text = "Complete all steps to continue"
         }
     }
     
+    // Cached status values to avoid re-checking between UI update and button click
+    private var cachedAccessibilityEnabled = false
+    private var cachedNotificationEnabled = false
+    private var cachedScreenCaptureEnabled = false
+    
     private fun isSetupComplete(): Boolean {
-        return isAccessibilityServiceEnabled() && 
-               isNotificationListenerEnabled() && 
-               ScreenCaptureService.isServiceRunning(this)
+        return cachedAccessibilityEnabled && cachedNotificationEnabled && cachedScreenCaptureEnabled
     }
     
     private fun isAccessibilityServiceEnabled(): Boolean {
