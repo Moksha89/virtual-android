@@ -58,8 +58,8 @@ class AppNotificationListenerService : NotificationListenerService() {
         if (packageName !in MONITORED_APPS) return
         
         // Check if sync is enabled
-        val prefs = PreferencesManager.getInstance(applicationContext)
-        if (!prefs.isRegistered()) return
+        val prefs = PreferencesManager(applicationContext)
+        if (!prefs.isRegistered) return
         
         val notification = sbn.notification
         val extras = notification.extras
