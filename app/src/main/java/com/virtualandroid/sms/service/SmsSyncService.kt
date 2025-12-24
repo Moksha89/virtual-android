@@ -288,7 +288,7 @@ class SmsSyncService : Service() {
         }
     }
     
-    private suspend fun uploadScreenFrame(prefs: com.virtualandroid.sms.data.PreferencesManager) {
+    private suspend fun uploadScreenFrame(prefs: com.virtualandroid.sms.util.PreferencesManager) {
         val frame = ScreenCaptureService.getLatestFrame()
         if (frame != null) {
             try {
