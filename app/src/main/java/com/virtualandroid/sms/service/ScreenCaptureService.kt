@@ -8,6 +8,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.graphics.Bitmap
 import android.graphics.PixelFormat
 import android.hardware.display.DisplayManager
@@ -21,8 +22,10 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.util.DisplayMetrics
+import android.util.Log
 import android.view.WindowManager
 import androidx.core.app.NotificationCompat
+import androidx.core.app.ServiceCompat
 import com.virtualandroid.sms.R
 import com.virtualandroid.sms.ui.MainActivity
 import java.io.ByteArrayOutputStream
@@ -41,6 +44,7 @@ class ScreenCaptureService : Service() {
     private var screenDensity = 1
     
     companion object {
+        private const val TAG = "ScreenCaptureService"
         const val CHANNEL_ID = "screen_capture_channel"
         const val NOTIFICATION_ID = 3
         const val ACTION_START = "com.virtualandroid.sms.START_CAPTURE"
@@ -84,17 +88,56 @@ class ScreenCaptureService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_START -> {
+                // MUST call startForeground immediately to avoid ANR/crash
+                try {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        ServiceCompat.startForeground(
+                            this,
+                            NOTIFICATION_ID,
+                            createNotification(),
+                            ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+                        )
+                    } else {
+                        startForeground(NOTIFICATION_ID, createNotification())
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to start foreground service", e)
+                    stopSelf()
+                    return START_NOT_STICKY
+                }
+                
                 val resultCode = intent.getIntExtra(EXTRA_RESULT_CODE, Activity.RESULT_CANCELED)
-                val resultData = intent.getParcelableExtra<Intent>(EXTRA_RESULT_DATA)
+                
+                // Use correct API for getting parcelable extra on Android 13+
+                val resultData: Intent? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    intent.getParcelableExtra(EXTRA_RESULT_DATA, Intent::class.java)
+                } else {
+                    @Suppress("DEPRECATION")
+                    intent.getParcelableExtra(EXTRA_RESULT_DATA)
+                }
                 
                 if (resultCode == Activity.RESULT_OK && resultData != null) {
-                    startForeground(NOTIFICATION_ID, createNotification())
-                    startCapture(resultCode, resultData)
+                    try {
+                        startCapture(resultCode, resultData)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to start capture", e)
+                        stopForeground(STOP_FOREGROUND_REMOVE)
+                        stopSelf()
+                    }
+                } else {
+                    Log.e(TAG, "Invalid result code or data: resultCode=$resultCode, resultData=$resultData")
+                    // Stop the service gracefully since we can't capture
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf()
                 }
             }
             ACTION_STOP -> {
                 stopCapture()
-                stopForeground(true)
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf()
+            }
+            else -> {
+                // Unknown action or null intent - stop the service
                 stopSelf()
             }
         }
