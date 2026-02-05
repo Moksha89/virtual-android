@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;">
+  <title>Android Remote Control</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <div class="logo">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect>
+            <line x1="12" y1="18" x2="12" y2="18"></line>
+          </svg>
+          <span>Android Remote</span>
+        </div>
+      </div>
+      
+      <nav class="sidebar-nav">
+        <a href="#" class="nav-item active" data-view="devices">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect>
+            <line x1="12" y1="18" x2="12" y2="18"></line>
+          </svg>
+          <span>Devices</span>
+        </a>
+        <a href="#" class="nav-item" data-view="sessions">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+            <line x1="8" y1="21" x2="16" y2="21"></line>
+            <line x1="12" y1="17" x2="12" y2="21"></line>
+          </svg>
+          <span>Sessions</span>
+        </a>
+        <a href="#" class="nav-item" data-view="settings">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+          </svg>
+          <span>Settings</span>
+        </a>
+        <a href="#" class="nav-item" data-view="help">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"></circle>
+            <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
+            <line x1="12" y1="17" x2="12.01" y2="17"></line>
+          </svg>
+          <span>Help</span>
+        </a>
+      </nav>
+      
+      <div class="sidebar-footer">
+        <div class="system-status" id="systemStatus">
+          <div class="status-item">
+            <span class="status-dot" id="adbStatus"></span>
+            <span>ADB</span>
+          </div>
+          <div class="status-item">
+            <span class="status-dot" id="scrcpyStatus"></span>
+            <span>scrcpy</span>
+          </div>
+        </div>
+        <div class="version" id="appVersion">v1.0.0</div>
+      </div>
+    </aside>
+    
+    <!-- Main Content -->
+    <main class="main-content">
+      <!-- Devices View -->
+      <div class="view active" id="devicesView">
+        <header class="view-header">
+          <h1>Connected Devices</h1>
+          <div class="header-actions">
+            <button class="btn btn-secondary" id="refreshDevicesBtn">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="23 4 23 10 17 10"></polyline>
+                <polyline points="1 20 1 14 7 14"></polyline>
+                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+              </svg>
+              Refresh
+            </button>
+            <button class="btn btn-primary" id="restartAdbBtn">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 2v6h-6"></path>
+                <path d="M3 12a9 9 0 0 1 15-6.7L21 8"></path>
+                <path d="M3 22v-6h6"></path>
+                <path d="M21 12a9 9 0 0 1-15 6.7L3 16"></path>
+              </svg>
+              Restart ADB
+            </button>
+          </div>
+        </header>
+        
+        <!-- Setup Required Banner -->
+        <div class="setup-banner" id="setupBanner" style="display: none;">
+          <div class="setup-icon">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+              <line x1="12" y1="9" x2="12" y2="13"></line>
+              <line x1="12" y1="17" x2="12.01" y2="17"></line>
+            </svg>
+          </div>
+          <div class="setup-content">
+            <h3>Setup Required</h3>
+            <p id="setupMessage">Some components need to be installed before you can use the application.</p>
+            <div class="setup-actions">
+              <button class="btn btn-primary" id="installAllBtn">Install Required Components</button>
+              <button class="btn btn-link" id="goToSettingsBtn">Go to Settings</button>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Help Tips -->
+        <div class="help-tips" id="deviceHelpTips">
+          <div class="tip">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"></circle>
+              <line x1="12" y1="16" x2="12" y2="12"></line>
+              <line x1="12" y1="8" x2="12.01" y2="8"></line>
+            </svg>
+            <span><strong>Tip:</strong> Enable USB Debugging on your Android device: Settings → Developer Options → USB Debugging</span>
+            <button class="tip-close" onclick="this.parentElement.style.display='none'">×</button>
+          </div>
+        </div>
+        
+        <!-- Device Grid -->
+        <div class="device-grid" id="deviceGrid">
+          <!-- Empty state -->
+          <div class="empty-state" id="emptyDevices">
+            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
+              <rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect>
+              <line x1="12" y1="18" x2="12" y2="18"></line>
+            </svg>
+            <h3>No Devices Connected</h3>
+            <p>Connect an Android device via USB to get started</p>
+            <div class="help-steps">
+              <div class="step">
+                <span class="step-number">1</span>
+                <span>Enable USB Debugging on your phone</span>
+              </div>
+              <div class="step">
+                <span class="step-number">2</span>
+                <span>Connect phone via USB cable</span>
+              </div>
+              <div class="step">
+                <span class="step-number">3</span>
+                <span>Accept the USB debugging prompt on your phone</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Sessions View -->
+      <div class="view" id="sessionsView">
+        <header class="view-header">
+          <h1>Active Sessions</h1>
+          <div class="header-actions">
+            <button class="btn btn-danger" id="stopAllSessionsBtn">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+              </svg>
+              Stop All Sessions
+            </button>
+          </div>
+        </header>
+        
+        <div class="sessions-list" id="sessionsList">
+          <div class="empty-state" id="emptySessions">
+            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
+              <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+              <line x1="8" y1="21" x2="16" y2="21"></line>
+              <line x1="12" y1="17" x2="12" y2="21"></line>
+            </svg>
+            <h3>No Active Sessions</h3>
+            <p>Start a session from the Devices tab to control a phone</p>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Settings View -->
+      <div class="view" id="settingsView">
+        <header class="view-header">
+          <h1>Settings</h1>
+        </header>
+        
+        <div class="settings-content">
+          <!-- Tools Section -->
+          <section class="settings-section">
+            <h2>Required Tools</h2>
+            <p class="section-description">These tools are required for the application to work properly.</p>
+            
+            <div class="tool-card" id="adbToolCard">
+              <div class="tool-info">
+                <div class="tool-icon">
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="4 17 10 11 4 5"></polyline>
+                    <line x1="12" y1="19" x2="20" y2="19"></line>
+                  </svg>
+                </div>
+                <div class="tool-details">
+                  <h3>Android Debug Bridge (ADB)</h3>
+                  <p>Required for communicating with Android devices</p>
+                  <div class="tool-status">
+                    <span class="status-badge" id="adbStatusBadge">Checking...</span>
+                    <span class="version-text" id="adbVersionText"></span>
+                  </div>
+                </div>
+              </div>
+              <div class="tool-actions">
+                <button class="btn btn-primary" id="installAdbBtn">Install</button>
+                <button class="btn btn-secondary" id="updateAdbBtn" style="display: none;">Update</button>
+              </div>
+            </div>
+            
+            <div class="tool-card" id="scrcpyToolCard">
+              <div class="tool-info">
+                <div class="tool-icon">
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+                    <line x1="8" y1="21" x2="16" y2="21"></line>
+                    <line x1="12" y1="17" x2="12" y2="21"></line>
+                  </svg>
+                </div>
+                <div class="tool-details">
+                  <h3>scrcpy</h3>
+                  <p>Screen mirroring and control tool</p>
+                  <div class="tool-status">
+                    <span class="status-badge" id="scrcpyStatusBadge">Checking...</span>
+                    <span class="version-text" id="scrcpyVersionText"></span>
+                  </div>
+                </div>
+              </div>
+              <div class="tool-actions">
+                <button class="btn btn-primary" id="installScrcpyBtn">Install</button>
+                <button class="btn btn-secondary" id="updateScrcpyBtn" style="display: none;">Update</button>
+              </div>
+            </div>
+            
+            <div class="tool-card" id="driversToolCard">
+              <div class="tool-info">
+                <div class="tool-icon">
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                    <polyline points="14 2 14 8 20 8"></polyline>
+                    <line x1="16" y1="13" x2="8" y2="13"></line>
+                    <line x1="16" y1="17" x2="8" y2="17"></line>
+                    <polyline points="10 9 9 9 8 9"></polyline>
+                  </svg>
+                </div>
+                <div class="tool-details">
+                  <h3>USB Drivers</h3>
+                  <p>Universal ADB drivers for Windows (not needed on Mac/Linux)</p>
+                  <div class="tool-status">
+                    <span class="status-badge" id="driversStatusBadge">Optional</span>
+                  </div>
+                </div>
+              </div>
+              <div class="tool-actions">
+                <button class="btn btn-secondary" id="installDriversBtn">Download Drivers</button>
+              </div>
+            </div>
+          </section>
+          
+          <!-- Session Settings -->
+          <section class="settings-section">
+            <h2>Session Defaults</h2>
+            <p class="section-description">Default settings for new sessions.</p>
+            
+            <div class="settings-form">
+              <div class="form-group">
+                <label for="defaultResolution">Max Resolution</label>
+                <select id="defaultResolution" class="form-control">
+                  <option value="1920">1920px (Full HD)</option>
+                  <option value="1280" selected>1280px (HD)</option>
+                  <option value="1024">1024px</option>
+                  <option value="800">800px</option>
+                </select>
+                <span class="form-help">Lower resolution = better performance</span>
+              </div>
+              
+              <div class="form-group">
+                <label for="defaultBitrate">Video Bitrate</label>
+                <select id="defaultBitrate" class="form-control">
+                  <option value="8000000">8 Mbps (High Quality)</option>
+                  <option value="4000000" selected>4 Mbps (Balanced)</option>
+                  <option value="2000000">2 Mbps (Low Bandwidth)</option>
+                  <option value="1000000">1 Mbps (Very Low)</option>
+                </select>
+              </div>
+              
+              <div class="form-group">
+                <label for="defaultFps">Max FPS</label>
+                <select id="defaultFps" class="form-control">
+                  <option value="60">60 FPS</option>
+                  <option value="30" selected>30 FPS</option>
+                  <option value="15">15 FPS</option>
+                </select>
+              </div>
+              
+              <div class="form-group">
+                <label class="checkbox-label">
+                  <input type="checkbox" id="stayAwake" checked>
+                  <span>Keep device awake during session</span>
+                </label>
+              </div>
+              
+              <div class="form-group">
+                <label class="checkbox-label">
+                  <input type="checkbox" id="showTouches">
+                  <span>Show touch indicators on device</span>
+                </label>
+              </div>
+            </div>
+          </section>
+          
+          <!-- Check for Updates -->
+          <section class="settings-section">
+            <h2>Updates</h2>
+            <div class="update-actions">
+              <button class="btn btn-secondary" id="checkUpdatesBtn">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 2v6h-6"></path>
+                  <path d="M3 12a9 9 0 0 1 15-6.7L21 8"></path>
+                  <path d="M3 22v-6h6"></path>
+                  <path d="M21 12a9 9 0 0 1-15 6.7L3 16"></path>
+                </svg>
+                Check for Updates
+              </button>
+            </div>
+          </section>
+        </div>
+      </div>
+      
+      <!-- Help View -->
+      <div class="view" id="helpView">
+        <header class="view-header">
+          <h1>Help & Documentation</h1>
+        </header>
+        
+        <div class="help-content">
+          <section class="help-section">
+            <h2>Getting Started</h2>
+            
+            <div class="help-card">
+              <h3>1. Enable USB Debugging on Your Android Device</h3>
+              <ol>
+                <li>Go to <strong>Settings</strong> → <strong>About Phone</strong></li>
+                <li>Tap <strong>Build Number</strong> 7 times to enable Developer Options</li>
+                <li>Go back to <strong>Settings</strong> → <strong>Developer Options</strong></li>
+                <li>Enable <strong>USB Debugging</strong></li>
+              </ol>
+            </div>
+            
+            <div class="help-card">
+              <h3>2. Connect Your Device</h3>
+              <ol>
+                <li>Connect your Android device to your computer via USB</li>
+                <li>When prompted on your phone, tap <strong>Allow</strong> to authorize USB debugging</li>
+                <li>Check <strong>"Always allow from this computer"</strong> for convenience</li>
+                <li>Your device should appear in the Devices list</li>
+              </ol>
+            </div>
+            
+            <div class="help-card">
+              <h3>3. Start a Session</h3>
+              <ol>
+                <li>Click on a connected device in the Devices list</li>
+                <li>Click <strong>Start Session</strong> to begin remote control</li>
+                <li>A new window will open showing your device's screen</li>
+                <li>Use your mouse and keyboard to control the device</li>
+              </ol>
+            </div>
+          </section>
+          
+          <section class="help-section">
+            <h2>Troubleshooting</h2>
+            
+            <div class="help-card">
+              <h3>Device Not Detected</h3>
+              <ul>
+                <li>Make sure USB Debugging is enabled</li>
+                <li>Try a different USB cable (use the original cable if possible)</li>
+                <li>Try a different USB port</li>
+                <li>Click "Restart ADB" in the Devices tab</li>
+                <li>On Windows, install USB drivers from Settings</li>
+              </ul>
+            </div>
+            
+            <div class="help-card">
+              <h3>Device Shows "Unauthorized"</h3>
+              <ul>
+                <li>Check your phone for a USB debugging authorization prompt</li>
+                <li>Tap "Allow" on the prompt</li>
+                <li>If no prompt appears, revoke USB debugging authorizations in Developer Options and reconnect</li>
+              </ul>
+            </div>
+            
+            <div class="help-card">
+              <h3>Screen Mirroring Not Working</h3>
+              <ul>
+                <li>Make sure scrcpy is installed (check Settings)</li>
+                <li>Try lowering the resolution in Settings</li>
+                <li>Some devices may require specific USB modes - try "File Transfer" mode</li>
+              </ul>
+            </div>
+          </section>
+          
+          <section class="help-section">
+            <h2>Keyboard Shortcuts</h2>
+            <div class="shortcuts-grid">
+              <div class="shortcut">
+                <kbd>Ctrl</kbd> + <kbd>H</kbd>
+                <span>Home button</span>
+              </div>
+              <div class="shortcut">
+                <kbd>Ctrl</kbd> + <kbd>B</kbd>
+                <span>Back button</span>
+              </div>
+              <div class="shortcut">
+                <kbd>Ctrl</kbd> + <kbd>S</kbd>
+                <span>App switch</span>
+              </div>
+              <div class="shortcut">
+                <kbd>Ctrl</kbd> + <kbd>P</kbd>
+                <span>Power button</span>
+              </div>
+              <div class="shortcut">
+                <kbd>Ctrl</kbd> + <kbd>↑</kbd>
+                <span>Volume up</span>
+              </div>
+              <div class="shortcut">
+                <kbd>Ctrl</kbd> + <kbd>↓</kbd>
+                <span>Volume down</span>
+              </div>
+            </div>
+          </section>
+          
+          <section class="help-section">
+            <h2>Banking App Safety</h2>
+            <div class="help-card warning">
+              <h3>Important Information</h3>
+              <p>This application uses ADB (Android Debug Bridge) to control your device, which is the same method used by Android developers. This approach is:</p>
+              <ul>
+                <li><strong>Bank-safe:</strong> No Android app is installed on your device</li>
+                <li><strong>No root required:</strong> Works with standard Android devices</li>
+                <li><strong>No accessibility services:</strong> Doesn't trigger banking app security</li>
+              </ul>
+              <p>Your banking apps should work normally while using this remote control system.</p>
+            </div>
+          </section>
+        </div>
+      </div>
+    </main>
+  </div>
+  
+  <!-- Modal for device details -->
+  <div class="modal" id="deviceModal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 id="modalDeviceName">Device Details</h2>
+        <button class="modal-close" id="closeModal">×</button>
+      </div>
+      <div class="modal-body" id="modalBody">
+        <!-- Device details will be inserted here -->
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="modalCancelBtn">Cancel</button>
+        <button class="btn btn-primary" id="modalStartSessionBtn">Start Session</button>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Toast notifications -->
+  <div class="toast-container" id="toastContainer"></div>
+  
+  <!-- Loading overlay -->
+  <div class="loading-overlay" id="loadingOverlay">
+    <div class="loading-spinner"></div>
+    <p id="loadingMessage">Loading...</p>
+  </div>
+  
+  <!-- Download progress modal -->
+  <div class="modal" id="downloadModal">
+    <div class="modal-content modal-small">
+      <div class="modal-header">
+        <h2 id="downloadTitle">Downloading...</h2>
+      </div>
+      <div class="modal-body">
+        <div class="progress-bar">
+          <div class="progress-fill" id="downloadProgress"></div>
+        </div>
+        <p class="progress-text" id="downloadProgressText">0%</p>
+      </div>
+    </div>
+  </div>
+  
+  <script src="js/app.js"></script>
+</body>
+</html>
