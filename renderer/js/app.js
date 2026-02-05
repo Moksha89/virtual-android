@@ -68,7 +68,7 @@ class App {
     document.getElementById('restartAdbBtn').addEventListener('click', async () => {
       this.showLoading('Restarting ADB server...');
       try {
-        await window.electronAPI.restartAdbServer();
+        await window.api.restartAdbServer();
         this.showToast('ADB server restarted', 'success');
         await this.loadDevices();
       } catch (error) {
@@ -136,39 +136,39 @@ class App {
   
   setupIpcListeners() {
     // Device events
-    window.electronAPI.onDevicesChanged((devices) => {
+    window.api.onDevicesChanged((devices) => {
       this.devices = devices;
       this.renderDevices();
     });
     
-    window.electronAPI.onDeviceConnected((device) => {
+    window.api.onDeviceConnected((device) => {
       this.showToast(`Device connected: ${device.model || device.serial}`, 'success');
     });
     
-    window.electronAPI.onDeviceDisconnected((device) => {
+    window.api.onDeviceDisconnected((device) => {
       this.showToast(`Device disconnected: ${device.model || device.serial}`, 'warning');
     });
     
     // Session events
-    window.electronAPI.onSessionStarted((session) => {
+    window.api.onSessionStarted((session) => {
       this.showToast(`Session started for ${session.device?.model || session.serial}`, 'success');
       this.loadSessions();
     });
     
-    window.electronAPI.onSessionEnded((session) => {
+    window.api.onSessionEnded((session) => {
       this.showToast(`Session ended`, 'success');
       this.loadSessions();
     });
     
     // Download progress
-    window.electronAPI.onDownloadProgress((data) => {
+    window.api.onDownloadProgress((data) => {
       this.updateDownloadProgress(data.type, data.progress);
     });
   }
   
   async setAppVersion() {
     try {
-      const version = await window.electronAPI.getAppVersion();
+      const version = await window.api.getAppVersion();
       document.getElementById('appVersion').textContent = `v${version}`;
     } catch (error) {
       // Ignore
@@ -177,7 +177,7 @@ class App {
   
   async loadSystemStatus() {
     try {
-      this.systemStatus = await window.electronAPI.getSystemStatus();
+      this.systemStatus = await window.api.getSystemStatus();
       this.updateSystemStatusUI();
       this.checkSetupRequired();
     } catch (error) {
@@ -245,7 +245,7 @@ class App {
   
   async loadDevices() {
     try {
-      this.devices = await window.electronAPI.refreshDevices();
+      this.devices = await window.api.refreshDevices();
       this.renderDevices();
     } catch (error) {
       console.error('Failed to load devices:', error);
@@ -549,7 +549,7 @@ class App {
     this.showLoading('Starting session...');
     
     try {
-      const result = await window.electronAPI.startSession(serial, options);
+      const result = await window.api.startSession(serial, options);
       
       if (result.success) {
         this.showToast('Session started successfully', 'success');
@@ -568,7 +568,7 @@ class App {
     this.showLoading('Stopping session...');
     
     try {
-      const result = await window.electronAPI.stopSession(serial);
+      const result = await window.api.stopSession(serial);
       
       if (result.success) {
         this.showToast('Session stopped', 'success');
@@ -591,12 +591,10 @@ class App {
     
     this.showLoading('Stopping all sessions...');
     
-    for (const session of this.sessions) {
-      try {
-        await window.electronAPI.stopSession(session.serial);
-      } catch (error) {
-        console.error('Failed to stop session:', error);
-      }
+    try {
+      await window.api.stopAllSessions();
+    } catch (error) {
+      console.error('Failed to stop sessions:', error);
     }
     
     await this.loadDevices();
@@ -607,7 +605,7 @@ class App {
   
   async loadSessions() {
     try {
-      this.sessions = await window.electronAPI.getActiveSessions();
+      this.sessions = await window.api.getActiveSessions();
       this.renderSessions();
     } catch (error) {
       console.error('Failed to load sessions:', error);
@@ -683,7 +681,7 @@ class App {
     this.showDownloadModal('Downloading ADB...');
     
     try {
-      const result = await window.electronAPI.installAdb();
+      const result = await window.api.installAdb();
       
       if (result.success) {
         this.showToast('ADB installed successfully', 'success');
@@ -702,7 +700,7 @@ class App {
     this.showDownloadModal('Downloading scrcpy...');
     
     try {
-      const result = await window.electronAPI.installScrcpy();
+      const result = await window.api.installScrcpy();
       
       if (result.success) {
         this.showToast('scrcpy installed successfully', 'success');
@@ -721,7 +719,7 @@ class App {
     this.showDownloadModal('Downloading USB drivers...');
     
     try {
-      const result = await window.electronAPI.installUsbDrivers();
+      const result = await window.api.installUsbDrivers();
       
       if (result.success) {
         this.showToast(result.message || 'USB drivers downloaded', 'success');
@@ -742,7 +740,7 @@ class App {
     this.showLoading('Checking for updates...');
     
     try {
-      const updates = await window.electronAPI.checkUpdates();
+      const updates = await window.api.checkUpdates();
       
       if (updates.adb?.updateAvailable || updates.scrcpy?.updateAvailable) {
         let message = 'Updates available: ';
