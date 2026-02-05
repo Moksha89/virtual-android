@@ -2,6 +2,7 @@ const express = require('express');
 const http = require('http');
 const WebSocket = require('ws');
 const path = require('path');
+const url = require('url');
 const AdbManager = require('./src/adb-manager');
 const ScrcpyManager = require('./src/scrcpy-manager');
 const DeviceManager = require('./src/device-manager');
@@ -9,7 +10,10 @@ const SessionManager = require('./src/session-manager');
 
 const app = express();
 const server = http.createServer(app);
-const wss = new WebSocket.Server({ server });
+
+// Create separate WebSocket servers for browsers and agents
+const wss = new WebSocket.Server({ noServer: true });
+const agentWss = new WebSocket.Server({ noServer: true });
 
 // Configuration
 const PORT = process.env.PORT || 3000;
@@ -21,8 +25,11 @@ let scrcpyManager;
 let deviceManager;
 let sessionManager;
 
-// Store connected WebSocket clients
+// Store connected WebSocket clients (browsers)
 const clients = new Set();
+
+// Store connected agents (Windows apps)
+const agents = new Map(); // agentId -> { ws, devices, info }
 
 // Broadcast to all connected clients
 function broadcast(type, data) {
@@ -375,17 +382,168 @@ app.get('/api/devices/:serial/current-app', async (req, res) => {
   }
 });
 
-// WebSocket handling
+// Get all devices from all agents
+function getAllAgentDevices() {
+  const allDevices = [];
+  agents.forEach((agent, agentId) => {
+    if (agent.devices) {
+      agent.devices.forEach(device => {
+        allDevices.push({
+          ...device,
+          agentId,
+          agentName: agent.info?.hostname || agentId
+        });
+      });
+    }
+  });
+  return allDevices;
+}
+
+// Forward command to specific agent
+function forwardToAgent(agentId, type, data) {
+  const agent = agents.get(agentId);
+  if (agent && agent.ws.readyState === WebSocket.OPEN) {
+    agent.ws.send(JSON.stringify({ type, data }));
+    return true;
+  }
+  return false;
+}
+
+// Broadcast to all browser clients
+function broadcastToBrowsers(type, data) {
+  const message = JSON.stringify({ type, data });
+  clients.forEach(client => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(message);
+    }
+  });
+}
+
+// Agent WebSocket handling (Windows apps connect here)
+agentWss.on('connection', (ws, req) => {
+  const agentId = `agent_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  console.log(`Agent connected: ${agentId}`);
+  
+  agents.set(agentId, {
+    ws,
+    devices: [],
+    info: null,
+    connectedAt: new Date()
+  });
+  
+  // Send welcome message with agent ID
+  ws.send(JSON.stringify({
+    type: 'welcome',
+    data: { agentId }
+  }));
+  
+  ws.on('message', async (message) => {
+    try {
+      const msg = JSON.parse(message);
+      const agent = agents.get(agentId);
+      
+      switch (msg.type) {
+        case 'register':
+          // Agent registration with info
+          agent.info = msg.data;
+          console.log(`Agent registered: ${msg.data.hostname || agentId}`);
+          broadcastToBrowsers('agent-connected', { agentId, info: msg.data });
+          break;
+          
+        case 'devices':
+          // Agent sends device list
+          agent.devices = msg.data || [];
+          console.log(`Agent ${agentId} has ${agent.devices.length} devices`);
+          broadcastToBrowsers('devices-changed', getAllAgentDevices());
+          break;
+          
+        case 'device-connected':
+          // Agent reports new device
+          const existingIdx = agent.devices.findIndex(d => d.serial === msg.data.serial);
+          if (existingIdx >= 0) {
+            agent.devices[existingIdx] = msg.data;
+          } else {
+            agent.devices.push(msg.data);
+          }
+          broadcastToBrowsers('device-connected', { ...msg.data, agentId });
+          broadcastToBrowsers('devices-changed', getAllAgentDevices());
+          break;
+          
+        case 'device-disconnected':
+          // Agent reports device disconnected
+          agent.devices = agent.devices.filter(d => d.serial !== msg.data.serial);
+          broadcastToBrowsers('device-disconnected', { ...msg.data, agentId });
+          broadcastToBrowsers('devices-changed', getAllAgentDevices());
+          break;
+          
+        case 'session-started':
+          broadcastToBrowsers('session-started', { ...msg.data, agentId });
+          break;
+          
+        case 'session-ended':
+          broadcastToBrowsers('session-ended', { ...msg.data, agentId });
+          break;
+          
+        case 'response':
+          // Response to a request from browser
+          broadcastToBrowsers('agent-response', { agentId, ...msg.data });
+          break;
+          
+        case 'webrtc-offer':
+        case 'webrtc-answer':
+        case 'webrtc-ice-candidate':
+          // WebRTC signaling - forward to browsers
+          broadcastToBrowsers(msg.type, { agentId, ...msg.data });
+          break;
+          
+        case 'heartbeat':
+          // Agent heartbeat
+          agent.lastHeartbeat = new Date();
+          ws.send(JSON.stringify({ type: 'heartbeat-ack' }));
+          break;
+      }
+    } catch (error) {
+      console.error('Agent message error:', error);
+      ws.send(JSON.stringify({ type: 'error', data: error.message }));
+    }
+  });
+  
+  ws.on('close', () => {
+    console.log(`Agent disconnected: ${agentId}`);
+    const agent = agents.get(agentId);
+    if (agent) {
+      broadcastToBrowsers('agent-disconnected', { agentId, info: agent.info });
+    }
+    agents.delete(agentId);
+    broadcastToBrowsers('devices-changed', getAllAgentDevices());
+  });
+  
+  ws.on('error', (error) => {
+    console.error(`Agent ${agentId} error:`, error);
+    agents.delete(agentId);
+  });
+});
+
+// Browser WebSocket handling
 wss.on('connection', (ws) => {
-  console.log('WebSocket client connected');
+  console.log('Browser client connected');
   clients.add(ws);
   
-  // Send current state
+  // Send current state including local devices and agent devices
+  const localDevices = deviceManager ? deviceManager.getDevices() : [];
+  const agentDevices = getAllAgentDevices();
+  const allDevices = [...localDevices, ...agentDevices];
+  
   ws.send(JSON.stringify({
     type: 'init',
     data: {
-      devices: deviceManager.getDevices(),
-      sessions: sessionManager.getActiveSessions()
+      devices: allDevices,
+      sessions: sessionManager ? sessionManager.getActiveSessions() : [],
+      agents: Array.from(agents.entries()).map(([id, agent]) => ({
+        id,
+        info: agent.info,
+        deviceCount: agent.devices.length
+      }))
     }
   }));
   
@@ -393,6 +551,17 @@ wss.on('connection', (ws) => {
     try {
       const { action, data } = JSON.parse(message);
       
+      // Check if this is for an agent device
+      if (data && data.agentId) {
+        // Forward to specific agent
+        const forwarded = forwardToAgent(data.agentId, 'command', { action, ...data });
+        if (!forwarded) {
+          ws.send(JSON.stringify({ type: 'error', data: 'Agent not connected' }));
+        }
+        return;
+      }
+      
+      // Handle local device commands
       switch (action) {
         case 'refresh-devices':
           await deviceManager.refreshDevices();
@@ -418,6 +587,14 @@ wss.on('connection', (ws) => {
         case 'recent':
           await sessionManager.pressRecent(data.serial);
           break;
+        case 'webrtc-offer':
+        case 'webrtc-answer':
+        case 'webrtc-ice-candidate':
+          // Forward WebRTC signaling to agent
+          if (data.agentId) {
+            forwardToAgent(data.agentId, action, data);
+          }
+          break;
       }
     } catch (error) {
       ws.send(JSON.stringify({ type: 'error', data: error.message }));
@@ -425,12 +602,12 @@ wss.on('connection', (ws) => {
   });
   
   ws.on('close', () => {
-    console.log('WebSocket client disconnected');
+    console.log('Browser client disconnected');
     clients.delete(ws);
   });
   
   ws.on('error', (error) => {
-    console.error('WebSocket error:', error);
+    console.error('Browser WebSocket error:', error);
     clients.delete(ws);
   });
 });
@@ -438,6 +615,36 @@ wss.on('connection', (ws) => {
 // Serve the main page
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'renderer', 'index.html'));
+});
+
+// API endpoint to get connected agents
+app.get('/api/agents', (req, res) => {
+  const agentList = Array.from(agents.entries()).map(([id, agent]) => ({
+    id,
+    info: agent.info,
+    deviceCount: agent.devices.length,
+    devices: agent.devices,
+    connectedAt: agent.connectedAt,
+    lastHeartbeat: agent.lastHeartbeat
+  }));
+  res.json(agentList);
+});
+
+// Handle WebSocket upgrade - route to correct server based on path
+server.on('upgrade', (request, socket, head) => {
+  const pathname = url.parse(request.url).pathname;
+  
+  if (pathname === '/agent') {
+    // Windows agent connection
+    agentWss.handleUpgrade(request, socket, head, (ws) => {
+      agentWss.emit('connection', ws, request);
+    });
+  } else {
+    // Browser client connection (default)
+    wss.handleUpgrade(request, socket, head, (ws) => {
+      wss.emit('connection', ws, request);
+    });
+  }
 });
 
 // Start server
@@ -454,7 +661,8 @@ async function start() {
       console.log(`========================================`);
       console.log(`Server running on http://0.0.0.0:${PORT}`);
       console.log(`Access from browser: http://YOUR_IP:${PORT}`);
-      console.log(`WebSocket endpoint: ws://YOUR_IP:${PORT}`);
+      console.log(`Browser WebSocket: ws://YOUR_IP:${PORT}`);
+      console.log(`Agent WebSocket: ws://YOUR_IP:${PORT}/agent`);
       console.log(`========================================\n`);
     });
   } catch (error) {

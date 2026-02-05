@@ -1050,6 +1050,72 @@ kbd {
   margin-bottom: 16px;
 }
 
+/* Cloud Connection */
+.cloud-status {
+  margin-bottom: 20px;
+  padding: 16px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius);
+}
+
+.cloud-status .status-indicator {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.cloud-status .status-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+
+.cloud-status .status-dot.connected {
+  background: var(--success);
+  box-shadow: 0 0 8px var(--success);
+}
+
+.cloud-status .status-dot.connecting {
+  background: var(--warning);
+  animation: pulse 1.5s infinite;
+}
+
+.cloud-status .status-dot.error {
+  background: var(--danger);
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.cloud-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.form-control {
+  width: 100%;
+  padding: 10px 14px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  font-size: 14px;
+  transition: border-color 0.2s;
+}
+
+.form-control:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+}
+
+.form-control::placeholder {
+  color: var(--text-muted);
+}
+
 /* Responsive */
 @media (max-width: 1200px) {
   .device-grid {

@@ -34,6 +34,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   stopAdbServer: () => ipcRenderer.invoke('stop-adb-server'),
   restartAdbServer: () => ipcRenderer.invoke('restart-adb-server'),
   
+  // Cloud connection
+  cloudConnect: (serverUrl, authToken) => ipcRenderer.invoke('cloud-connect', serverUrl, authToken),
+  cloudDisconnect: () => ipcRenderer.invoke('cloud-disconnect'),
+  cloudStatus: () => ipcRenderer.invoke('cloud-status'),
+  cloudSaveConfig: (config) => ipcRenderer.invoke('cloud-save-config', config),
+  cloudLoadConfig: () => ipcRenderer.invoke('cloud-load-config'),
+  
   // Utility
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
   
@@ -58,6 +65,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   onDownloadProgress: (callback) => {
     ipcRenderer.on('download-progress', (event, data) => callback(data));
+  },
+  onCloudConnected: (callback) => {
+    ipcRenderer.on('cloud-connected', () => callback());
+  },
+  onCloudDisconnected: (callback) => {
+    ipcRenderer.on('cloud-disconnected', (event, data) => callback(data));
+  },
+  onCloudReconnecting: (callback) => {
+    ipcRenderer.on('cloud-reconnecting', (event, data) => callback(data));
+  },
+  onCloudError: (callback) => {
+    ipcRenderer.on('cloud-error', (event, data) => callback(data));
   },
   
   // Remove listeners

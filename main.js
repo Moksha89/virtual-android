@@ -1,15 +1,44 @@
 const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
+const fs = require('fs');
 const AdbManager = require('./src/adb-manager');
 const ScrcpyManager = require('./src/scrcpy-manager');
 const DeviceManager = require('./src/device-manager');
 const SessionManager = require('./src/session-manager');
+const CloudConnector = require('./src/cloud-connector');
 
 let mainWindow;
 let adbManager;
 let scrcpyManager;
 let deviceManager;
 let sessionManager;
+let cloudConnector;
+
+// Cloud configuration file path
+const getConfigPath = () => path.join(app.getPath('userData'), 'cloud-config.json');
+
+function loadCloudConfig() {
+  try {
+    const configPath = getConfigPath();
+    if (fs.existsSync(configPath)) {
+      return JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    }
+  } catch (error) {
+    console.error('Failed to load cloud config:', error.message);
+  }
+  return { serverUrl: '', authToken: '', autoConnect: false };
+}
+
+function saveCloudConfig(config) {
+  try {
+    const configPath = getConfigPath();
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+    return true;
+  } catch (error) {
+    console.error('Failed to save cloud config:', error.message);
+    return false;
+  }
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -53,6 +82,44 @@ async function initializeManagers() {
   
   // Initialize Session Manager
   sessionManager = new SessionManager(deviceManager, scrcpyManager, adbManager);
+  
+  // Initialize Cloud Connector
+  cloudConnector = new CloudConnector();
+  cloudConnector.setDeviceManager(deviceManager);
+  cloudConnector.setSessionManager(sessionManager);
+  
+  // Cloud connector events
+  cloudConnector.on('connected', () => {
+    if (mainWindow) {
+      mainWindow.webContents.send('cloud-connected');
+    }
+  });
+  
+  cloudConnector.on('disconnected', (data) => {
+    if (mainWindow) {
+      mainWindow.webContents.send('cloud-disconnected', data);
+    }
+  });
+  
+  cloudConnector.on('reconnecting', (data) => {
+    if (mainWindow) {
+      mainWindow.webContents.send('cloud-reconnecting', data);
+    }
+  });
+  
+  cloudConnector.on('error', (error) => {
+    if (mainWindow) {
+      mainWindow.webContents.send('cloud-error', { message: error.message });
+    }
+  });
+  
+  // Auto-connect to cloud if configured
+  const cloudConfig = loadCloudConfig();
+  if (cloudConfig.autoConnect && cloudConfig.serverUrl) {
+    cloudConnector.connect(cloudConfig.serverUrl, cloudConfig.authToken).catch(err => {
+      console.error('Auto-connect to cloud failed:', err.message);
+    });
+  }
   
   // Set up event forwarding to renderer
   deviceManager.on('devices-changed', (devices) => {
@@ -231,6 +298,34 @@ function setupIpcHandlers() {
   ipcMain.handle('restart-adb-server', async () => {
     await adbManager.stopServer();
     return adbManager.startServer();
+  });
+  
+  // Cloud connection handlers
+  ipcMain.handle('cloud-connect', async (event, serverUrl, authToken) => {
+    try {
+      await cloudConnector.connect(serverUrl, authToken);
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+  
+  ipcMain.handle('cloud-disconnect', async () => {
+    cloudConnector.disconnect();
+    return { success: true };
+  });
+  
+  ipcMain.handle('cloud-status', async () => {
+    return cloudConnector.getStatus();
+  });
+  
+  ipcMain.handle('cloud-save-config', async (event, config) => {
+    const success = saveCloudConfig(config);
+    return { success };
+  });
+  
+  ipcMain.handle('cloud-load-config', async () => {
+    return loadCloudConfig();
   });
 }
 

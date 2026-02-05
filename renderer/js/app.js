@@ -23,6 +23,7 @@ class App {
     // Load initial data
     await this.loadSystemStatus();
     await this.loadDevices();
+    await this.loadCloudConfig();
     
     // Set app version
     this.setAppVersion();
@@ -107,6 +108,19 @@ class App {
       this.checkUpdates();
     });
     
+    // Cloud connection buttons
+    document.getElementById('cloudConnectBtn')?.addEventListener('click', () => {
+      this.connectToCloud();
+    });
+    
+    document.getElementById('cloudDisconnectBtn')?.addEventListener('click', () => {
+      this.disconnectFromCloud();
+    });
+    
+    document.getElementById('cloudSaveConfigBtn')?.addEventListener('click', () => {
+      this.saveCloudConfig();
+    });
+    
     // Stop all sessions button
     document.getElementById('stopAllSessionsBtn').addEventListener('click', () => {
       this.stopAllSessions();
@@ -164,6 +178,28 @@ class App {
     window.api.onDownloadProgress((data) => {
       this.updateDownloadProgress(data.type, data.progress);
     });
+    
+    // Cloud events
+    if (window.api.onCloudConnected) {
+      window.api.onCloudConnected(() => {
+        this.updateCloudStatusUI(true);
+        this.showToast('Connected to cloud server', 'success');
+      });
+      
+      window.api.onCloudDisconnected((data) => {
+        this.updateCloudStatusUI(false);
+        this.showToast('Disconnected from cloud server', 'warning');
+      });
+      
+      window.api.onCloudReconnecting((data) => {
+        this.updateCloudStatusUI(false, true);
+        this.showToast(`Reconnecting to cloud (attempt ${data.attempt})...`, 'warning');
+      });
+      
+      window.api.onCloudError((data) => {
+        this.showToast('Cloud error: ' + data.message, 'error');
+      });
+    }
   }
   
   async setAppVersion() {
@@ -734,6 +770,105 @@ class App {
     }
     
     this.hideDownloadModal();
+  }
+  
+  async loadCloudConfig() {
+    if (!window.api.cloudLoadConfig) return;
+    
+    try {
+      const config = await window.api.cloudLoadConfig();
+      document.getElementById('cloudServerUrl').value = config.serverUrl || '';
+      document.getElementById('cloudAuthToken').value = config.authToken || '';
+      document.getElementById('cloudAutoConnect').checked = config.autoConnect || false;
+      
+      // Check current cloud status
+      const status = await window.api.cloudStatus();
+      this.updateCloudStatusUI(status.connected);
+    } catch (error) {
+      console.error('Failed to load cloud config:', error);
+    }
+  }
+  
+  async connectToCloud() {
+    const serverUrl = document.getElementById('cloudServerUrl').value.trim();
+    const authToken = document.getElementById('cloudAuthToken').value.trim();
+    
+    if (!serverUrl) {
+      this.showToast('Please enter a server URL', 'error');
+      return;
+    }
+    
+    this.showLoading('Connecting to cloud server...');
+    
+    try {
+      const result = await window.api.cloudConnect(serverUrl, authToken);
+      
+      if (result.success) {
+        this.updateCloudStatusUI(true);
+        this.showToast('Connected to cloud server', 'success');
+      } else {
+        this.showToast('Failed to connect: ' + result.error, 'error');
+      }
+    } catch (error) {
+      this.showToast('Failed to connect: ' + error.message, 'error');
+    }
+    
+    this.hideLoading();
+  }
+  
+  async disconnectFromCloud() {
+    try {
+      await window.api.cloudDisconnect();
+      this.updateCloudStatusUI(false);
+      this.showToast('Disconnected from cloud server', 'success');
+    } catch (error) {
+      this.showToast('Failed to disconnect: ' + error.message, 'error');
+    }
+  }
+  
+  async saveCloudConfig() {
+    const config = {
+      serverUrl: document.getElementById('cloudServerUrl').value.trim(),
+      authToken: document.getElementById('cloudAuthToken').value.trim(),
+      autoConnect: document.getElementById('cloudAutoConnect').checked
+    };
+    
+    try {
+      const result = await window.api.cloudSaveConfig(config);
+      
+      if (result.success) {
+        this.showToast('Cloud settings saved', 'success');
+      } else {
+        this.showToast('Failed to save settings', 'error');
+      }
+    } catch (error) {
+      this.showToast('Failed to save settings: ' + error.message, 'error');
+    }
+  }
+  
+  updateCloudStatusUI(connected, connecting = false) {
+    const statusDot = document.getElementById('cloudStatusDot');
+    const statusText = document.getElementById('cloudStatusText');
+    const connectBtn = document.getElementById('cloudConnectBtn');
+    const disconnectBtn = document.getElementById('cloudDisconnectBtn');
+    
+    if (!statusDot) return;
+    
+    statusDot.classList.remove('connected', 'connecting', 'error');
+    
+    if (connecting) {
+      statusDot.classList.add('connecting');
+      statusText.textContent = 'Connecting...';
+    } else if (connected) {
+      statusDot.classList.add('connected');
+      statusText.textContent = 'Connected';
+      if (connectBtn) connectBtn.style.display = 'none';
+      if (disconnectBtn) disconnectBtn.style.display = 'inline-flex';
+    } else {
+      statusText.textContent = 'Disconnected';
+      if (connectBtn) connectBtn.style.display = 'inline-flex';
+      if (disconnectBtn) disconnectBtn.style.display = 'none';
+    }
   }
   
   async checkUpdates() {
