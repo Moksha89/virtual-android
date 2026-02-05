@@ -44,6 +44,14 @@
           </svg>
           <span>Settings</span>
         </a>
+        <a href="#" class="nav-item" data-view="download">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="7 10 12 15 17 10"></polyline>
+            <line x1="12" y1="15" x2="12" y2="3"></line>
+          </svg>
+          <span>Download</span>
+        </a>
         <a href="#" class="nav-item" data-view="help">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <circle cx="12" cy="12" r="10"></circle>
@@ -382,6 +390,88 @@
                 </svg>
                 Check for Updates
               </button>
+            </div>
+          </section>
+        </div>
+      </div>
+      
+      <!-- Download View -->
+      <div class="view" id="downloadView">
+        <header class="view-header">
+          <h1>Download Windows App</h1>
+        </header>
+        
+        <div class="download-content">
+          <section class="download-section">
+            <div class="download-hero">
+              <div class="download-icon">
+                <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect>
+                  <line x1="12" y1="18" x2="12" y2="18"></line>
+                </svg>
+              </div>
+              <h2>Android Remote Control for Windows</h2>
+              <p class="download-description">Control your Android devices from your Windows PC and connect to the cloud for remote access from anywhere.</p>
+            </div>
+            
+            <div class="download-card">
+              <div class="download-info">
+                <h3>Windows Portable (64-bit)</h3>
+                <p>No installation required. Extract and run.</p>
+                <ul class="download-features">
+                  <li>Auto-downloads ADB and scrcpy</li>
+                  <li>Cloud connectivity built-in</li>
+                  <li>Multi-device support</li>
+                  <li>Bank-safe ADB control</li>
+                </ul>
+              </div>
+              <a href="/downloads/AndroidRemoteControl-Windows-Portable.zip" class="btn btn-primary btn-large download-btn">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="7 10 12 15 17 10"></polyline>
+                  <line x1="12" y1="15" x2="12" y2="3"></line>
+                </svg>
+                Download (~133 MB)
+              </a>
+            </div>
+          </section>
+          
+          <section class="download-section">
+            <h2>Quick Start Guide</h2>
+            <div class="steps-grid">
+              <div class="step-card">
+                <div class="step-number">1</div>
+                <h4>Download & Extract</h4>
+                <p>Download the zip file and extract it to any folder on your Windows PC.</p>
+              </div>
+              <div class="step-card">
+                <div class="step-number">2</div>
+                <h4>Run the App</h4>
+                <p>Open the extracted folder and run "Android Remote Control.exe"</p>
+              </div>
+              <div class="step-card">
+                <div class="step-number">3</div>
+                <h4>Connect Devices</h4>
+                <p>Connect your Android phone via USB with USB Debugging enabled.</p>
+              </div>
+              <div class="step-card">
+                <div class="step-number">4</div>
+                <h4>Enable Cloud Access</h4>
+                <p>Go to Settings → Cloud Connection and enter this server URL to access from anywhere.</p>
+              </div>
+            </div>
+          </section>
+          
+          <section class="download-section">
+            <h2>Cloud Connection</h2>
+            <div class="cloud-info-card">
+              <p>To access your devices remotely from any browser:</p>
+              <ol>
+                <li>Run the Windows app on your PC with devices connected</li>
+                <li>In Settings → Cloud Connection, enter: <code id="serverUrl">http://69.197.168.244:3000</code></li>
+                <li>Click "Connect" and "Save Settings"</li>
+                <li>Your devices will appear in this web interface</li>
+              </ol>
             </div>
           </section>
         </div>

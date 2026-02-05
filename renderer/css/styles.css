@@ -1116,6 +1116,165 @@ kbd {
   color: var(--text-muted);
 }
 
+/* Download Page Styles */
+.download-content {
+  padding: 20px;
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.download-section {
+  margin-bottom: 40px;
+}
+
+.download-hero {
+  text-align: center;
+  padding: 40px 20px;
+  background: linear-gradient(135deg, var(--bg-tertiary) 0%, var(--bg-secondary) 100%);
+  border-radius: var(--radius-lg);
+  margin-bottom: 30px;
+}
+
+.download-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100px;
+  height: 100px;
+  background: var(--accent-primary);
+  border-radius: 24px;
+  margin-bottom: 20px;
+}
+
+.download-icon svg {
+  color: white;
+}
+
+.download-hero h2 {
+  font-size: 28px;
+  margin-bottom: 12px;
+}
+
+.download-description {
+  color: var(--text-secondary);
+  font-size: 16px;
+  max-width: 500px;
+  margin: 0 auto;
+}
+
+.download-card {
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-lg);
+  padding: 30px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 30px;
+}
+
+.download-info h3 {
+  font-size: 20px;
+  margin-bottom: 8px;
+}
+
+.download-info > p {
+  color: var(--text-secondary);
+  margin-bottom: 16px;
+}
+
+.download-features {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.download-features li {
+  padding: 6px 0;
+  padding-left: 24px;
+  position: relative;
+  color: var(--text-secondary);
+}
+
+.download-features li::before {
+  content: "✓";
+  position: absolute;
+  left: 0;
+  color: var(--success);
+  font-weight: bold;
+}
+
+.btn-large {
+  padding: 16px 32px;
+  font-size: 16px;
+}
+
+.download-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  white-space: nowrap;
+  text-decoration: none;
+}
+
+.steps-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 20px;
+}
+
+.step-card {
+  background: var(--bg-tertiary);
+  border-radius: var(--radius);
+  padding: 24px;
+  text-align: center;
+}
+
+.step-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  background: var(--accent-primary);
+  color: white;
+  border-radius: 50%;
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 16px;
+}
+
+.step-card h4 {
+  margin-bottom: 8px;
+}
+
+.step-card p {
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.cloud-info-card {
+  background: var(--bg-tertiary);
+  border-radius: var(--radius);
+  padding: 24px;
+}
+
+.cloud-info-card ol {
+  margin: 16px 0 0 20px;
+}
+
+.cloud-info-card li {
+  padding: 8px 0;
+  color: var(--text-secondary);
+}
+
+.cloud-info-card code {
+  background: var(--bg-secondary);
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-family: monospace;
+  color: var(--accent-primary);
+}
+
 /* Responsive */
 @media (max-width: 1200px) {
   .device-grid {

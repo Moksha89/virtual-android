@@ -105,6 +105,7 @@ async function initializeManagers() {
 // Middleware
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'renderer')));
+app.use('/downloads', express.static(path.join(__dirname, 'downloads')));
 
 // API Routes
 
