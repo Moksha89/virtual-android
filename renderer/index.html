@@ -291,7 +291,7 @@
               </div>
             </div>
             
-            <div class="settings-form">
+            <form class="settings-form" autocomplete="off" onsubmit="return false;">
               <div class="form-group">
                 <label for="cloudServerUrl">Server URL</label>
                 <input type="text" id="cloudServerUrl" class="form-control" placeholder="http://your-server:3000">
@@ -311,22 +311,22 @@
               </div>
               
               <div class="cloud-actions">
-                <button class="btn btn-primary" id="cloudConnectBtn">
+                <button type="button" class="btn btn-primary" id="cloudConnectBtn">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"></path>
                   </svg>
                   Connect
                 </button>
-                <button class="btn btn-secondary" id="cloudDisconnectBtn" style="display: none;">
+                <button type="button" class="btn btn-secondary" id="cloudDisconnectBtn" style="display: none;">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <line x1="18" y1="6" x2="6" y2="18"></line>
                     <line x1="6" y1="6" x2="18" y2="18"></line>
                   </svg>
                   Disconnect
                 </button>
-                <button class="btn btn-secondary" id="cloudSaveConfigBtn">Save Settings</button>
+                <button type="button" class="btn btn-secondary" id="cloudSaveConfigBtn">Save Settings</button>
               </div>
-            </div>
+            </form>
           </section>
           
           <!-- Session Settings -->
