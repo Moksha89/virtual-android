@@ -773,20 +773,22 @@ class App {
   }
   
   async loadCloudConfig() {
-    if (!window.api.cloudLoadConfig) return;
+    if (!this.isElectron()) {
+      const webNote = document.getElementById('cloudWebNote');
+      if (webNote) webNote.style.display = 'block';
+      return;
+    }
     
     try {
-      const config = await window.api.cloudLoadConfig();
-      document.getElementById('cloudServerUrl').value = config.serverUrl || '';
-      document.getElementById('cloudAuthToken').value = config.authToken || '';
-      document.getElementById('cloudAutoConnect').checked = config.autoConnect || false;
-      
-      // Check current cloud status
       const status = await window.api.cloudStatus();
       this.updateCloudStatusUI(status.connected);
     } catch (error) {
       console.error('Failed to load cloud config:', error);
     }
+  }
+  
+  isElectron() {
+    return typeof window.electronAPI !== 'undefined';
   }
   
   async connectToCloud() {

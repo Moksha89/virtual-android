@@ -270,6 +270,35 @@ class API {
     return '1.0.0'; // Web version
   }
   
+  // Cloud connection (web mode stubs - cloud is for Windows agent, not browser)
+  async cloudConnect(serverUrl, authToken) {
+    if (this.isElectron) {
+      return window.electronAPI.cloudConnect(serverUrl, authToken);
+    }
+    return { success: false, error: 'Cloud connection is configured from the Windows desktop app, not the browser. Download the Windows app from the Download page.' };
+  }
+  
+  async cloudDisconnect() {
+    if (this.isElectron) {
+      return window.electronAPI.cloudDisconnect();
+    }
+    return { success: true };
+  }
+  
+  async cloudSaveConfig(config) {
+    if (this.isElectron) {
+      return window.electronAPI.cloudSaveConfig(config);
+    }
+    return { success: false, error: 'Cloud settings are configured from the Windows desktop app.' };
+  }
+  
+  async cloudStatus() {
+    if (this.isElectron) {
+      return window.electronAPI.cloudStatus();
+    }
+    return { connected: false };
+  }
+  
   // Event listeners (for compatibility with Electron API)
   onDevicesChanged(callback) {
     if (this.isElectron) {

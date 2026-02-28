@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;">
   <title>Android Remote Control</title>
+  <link rel="icon" type="image/x-icon" href="favicon.ico">
   <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
@@ -279,6 +280,9 @@
           <section class="settings-section">
             <h2>Cloud Connection</h2>
             <p class="section-description">Connect to cloud server for remote access from anywhere.</p>
+            <div class="help-card" id="cloudWebNote" style="margin-bottom: 16px; display: none;">
+              <p><strong>Web Mode:</strong> Cloud connection is configured from the Windows desktop app. Download it from the <a href="#" onclick="window.app.switchView('download'); return false;">Download page</a> and configure the cloud server URL there.</p>
+            </div>
             
             <div class="cloud-status" id="cloudStatusSection">
               <div class="status-indicator">
