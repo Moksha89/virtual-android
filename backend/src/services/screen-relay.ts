@@ -107,8 +107,14 @@ export function setupScreenRelay(server: HttpServer): WebSocketServer {
       }
       const session = screenSessions.get(serial)!;
 
-      // Get tabId from query params (new clients send this, old clients don't)
-      const tabId = url.searchParams.get('tabId') || `legacy-${Date.now()}-${Math.random().toString(36).substring(2)}`;
+      // Require tabId from browser clients (new JS sends this, old cached JS doesn't)
+      const tabId = url.searchParams.get('tabId');
+      if (!tabId) {
+        // Old cached browser JS - reject immediately to prevent churn loop
+        console.log(`Rejecting browser without tabId for device: ${serial} (outdated client)`);
+        ws.close(4005, 'Browser version outdated - please hard refresh (Ctrl+Shift+R)');
+        return;
+      }
       ws.tabId = tabId;
 
       // Clean up dead browser connections before adding new one
