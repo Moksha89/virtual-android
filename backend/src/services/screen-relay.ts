@@ -6,7 +6,7 @@ import { JwtPayload } from '../types';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'default-secret-change-me';
 const AGENT_API_KEY = process.env.AGENT_API_KEY || '';
-const MAX_BROWSERS_PER_DEVICE = 2;
+const MAX_BROWSERS_PER_DEVICE = 5;
 
 interface ScreenSocket extends WebSocket {
   role?: 'agent' | 'browser';
@@ -15,12 +15,13 @@ interface ScreenSocket extends WebSocket {
   userId?: string;
   isAlive?: boolean;
   connectedAt?: number;
+  tabId?: string;
 }
 
-// Map: deviceSerial -> { agent: ScreenSocket, browsers: Set<ScreenSocket> }
+// Map: deviceSerial -> { agent: ScreenSocket, browsers: Map<tabId, ScreenSocket> }
 const screenSessions = new Map<string, {
   agent: ScreenSocket | null;
-  browsers: Set<ScreenSocket>;
+  browsers: Map<string, ScreenSocket>;
 }>();
 
 // Track frame relay stats
@@ -61,7 +62,7 @@ export function setupScreenRelay(server: HttpServer): WebSocketServer {
 
       // Register agent for this device
       if (!screenSessions.has(serial)) {
-        screenSessions.set(serial, { agent: null, browsers: new Set() });
+        screenSessions.set(serial, { agent: null, browsers: new Map() });
       }
       const session = screenSessions.get(serial)!;
 
@@ -82,7 +83,8 @@ export function setupScreenRelay(server: HttpServer): WebSocketServer {
       });
 
       // Notify agent if browsers are already waiting
-      if (session.browsers.size > 0) {
+      const activeBrowserCount = Array.from(session.browsers.values()).filter(b => b.readyState === WebSocket.OPEN).length;
+      if (activeBrowserCount > 0) {
         ws.send(JSON.stringify({ type: 'start_streaming' }));
       }
     } else if (role === 'browser') {
@@ -101,28 +103,43 @@ export function setupScreenRelay(server: HttpServer): WebSocketServer {
 
       // Register browser for this device
       if (!screenSessions.has(serial)) {
-        screenSessions.set(serial, { agent: null, browsers: new Set() });
+        screenSessions.set(serial, { agent: null, browsers: new Map() });
       }
       const session = screenSessions.get(serial)!;
 
+      // Get tabId from query params (new clients send this, old clients don't)
+      const tabId = url.searchParams.get('tabId') || `legacy-${Date.now()}-${Math.random().toString(36).substring(2)}`;
+      ws.tabId = tabId;
+
       // Clean up dead browser connections before adding new one
-      const deadBrowsers: ScreenSocket[] = [];
-      session.browsers.forEach((browser) => {
+      const deadTabIds: string[] = [];
+      session.browsers.forEach((browser, tid) => {
         if (browser.readyState !== WebSocket.OPEN && browser.readyState !== WebSocket.CONNECTING) {
-          deadBrowsers.push(browser);
+          deadTabIds.push(tid);
         }
       });
-      deadBrowsers.forEach((b) => session.browsers.delete(b));
+      deadTabIds.forEach((tid) => session.browsers.delete(tid));
 
-      // Enforce max browser connections per device - close oldest if limit exceeded
+      // If same tabId reconnecting, close the old connection (deduplicate)
+      const existing = session.browsers.get(tabId);
+      if (existing) {
+        console.log(`Replacing existing browser connection for tabId ${tabId.substring(0, 8)} on device: ${serial}`);
+        if (existing.readyState === WebSocket.OPEN) {
+          existing.onclose = null; // Prevent close handler cleanup
+          existing.close(4004, 'Replaced by same tab reconnect');
+        }
+        session.browsers.delete(tabId);
+      }
+
+      // Enforce max browser connections per device (unique tabs only)
       if (session.browsers.size >= MAX_BROWSERS_PER_DEVICE) {
-        const browsersArray = Array.from(session.browsers) as ScreenSocket[];
+        const browsersArray = Array.from(session.browsers.entries());
         // Sort by connection time, close oldest
-        browsersArray.sort((a, b) => (a.connectedAt || 0) - (b.connectedAt || 0));
+        browsersArray.sort((a, b) => (a[1].connectedAt || 0) - (b[1].connectedAt || 0));
         const toRemove = browsersArray.slice(0, session.browsers.size - MAX_BROWSERS_PER_DEVICE + 1);
-        toRemove.forEach((old) => {
-          console.log(`Closing excess browser connection for device: ${serial}`);
-          session.browsers.delete(old);
+        toRemove.forEach(([tid, old]) => {
+          console.log(`Closing excess browser connection (tab ${tid.substring(0, 8)}) for device: ${serial}`);
+          session.browsers.delete(tid);
           if (old.readyState === WebSocket.OPEN) {
             old.close(4003, 'Too many browser connections');
           }
@@ -130,9 +147,9 @@ export function setupScreenRelay(server: HttpServer): WebSocketServer {
       }
 
       ws.connectedAt = Date.now();
-      session.browsers.add(ws);
+      session.browsers.set(tabId, ws);
 
-      console.log(`Screen browser connected for device: ${serial}, total browsers: ${session.browsers.size}`);
+      console.log(`Screen browser connected for device: ${serial}, tabId: ${tabId.substring(0, 8)}, total tabs: ${session.browsers.size}`);
 
       // Tell agent to start streaming if connected
       if (session.agent && session.agent.readyState === WebSocket.OPEN) {
@@ -166,7 +183,7 @@ export function setupScreenRelay(server: HttpServer): WebSocketServer {
           // Log frame stats every 10 seconds
           const now = Date.now();
           if (now - lastFrameLogTime > 10000) {
-            const activeBrowsers = Array.from(session.browsers).filter(b => b.readyState === WebSocket.OPEN).length;
+            const activeBrowsers = Array.from(session.browsers.values()).filter(b => b.readyState === WebSocket.OPEN).length;
             console.log(`Frame relay stats: ${frameRelayCount} frames relayed, ${frameSize} bytes last frame, ${activeBrowsers} active browsers for ${ws.deviceSerial}`);
             frameRelayCount = 0;
             lastFrameLogTime = now;
@@ -216,8 +233,11 @@ export function setupScreenRelay(server: HttpServer): WebSocketServer {
           screenSessions.delete(ws.deviceSerial || '');
         }
       } else if (ws.role === 'browser') {
-        session.browsers.delete(ws);
-        console.log(`Screen browser disconnected for device: ${ws.deviceSerial}, remaining: ${session.browsers.size}`);
+        // Remove by tabId
+        if (ws.tabId && session.browsers.get(ws.tabId) === ws) {
+          session.browsers.delete(ws.tabId);
+        }
+        console.log(`Screen browser disconnected for device: ${ws.deviceSerial}, tabId: ${(ws.tabId || '').substring(0, 8)}, remaining: ${session.browsers.size}`);
         // Tell agent to stop streaming if no more browsers
         if (session.browsers.size === 0 && session.agent && session.agent.readyState === WebSocket.OPEN) {
           session.agent.send(JSON.stringify({ type: 'stop_streaming' }));
@@ -248,15 +268,15 @@ export function setupScreenRelay(server: HttpServer): WebSocketServer {
 
     // Also clean up dead browsers from sessions
     screenSessions.forEach((session, serial) => {
-      const deadBrowsers: ScreenSocket[] = [];
-      session.browsers.forEach((browser) => {
+      const deadTabIds: string[] = [];
+      session.browsers.forEach((browser, tid) => {
         if (browser.readyState !== WebSocket.OPEN && browser.readyState !== WebSocket.CONNECTING) {
-          deadBrowsers.push(browser);
+          deadTabIds.push(tid);
         }
       });
-      if (deadBrowsers.length > 0) {
-        deadBrowsers.forEach((b) => session.browsers.delete(b));
-        console.log(`Cleaned up ${deadBrowsers.length} dead browser connections for ${serial}, remaining: ${session.browsers.size}`);
+      if (deadTabIds.length > 0) {
+        deadTabIds.forEach((tid) => session.browsers.delete(tid));
+        console.log(`Cleaned up ${deadTabIds.length} dead browser connections for ${serial}, remaining: ${session.browsers.size}`);
       }
     });
   }, 15000);
@@ -274,7 +294,7 @@ export function getActiveScreenSessions(): { serial: string; hasBrowsers: boolea
   screenSessions.forEach((session, serial) => {
     sessions.push({
       serial,
-      hasBrowsers: session.browsers.size > 0,
+      hasBrowsers: Array.from(session.browsers.values()).some(b => b.readyState === WebSocket.OPEN),
       hasAgent: session.agent !== null && session.agent.readyState === WebSocket.OPEN,
     });
   });

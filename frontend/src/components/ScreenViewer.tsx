@@ -36,6 +36,8 @@ export default function ScreenViewer({ deviceSerial, deviceResolution, isOnline 
   const blobUrlRef = useRef<string | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mountedRef = useRef(true);
+  // Stable tab identifier - survives reconnects within same tab
+  const tabIdRef = useRef(Math.random().toString(36).substring(2) + Date.now().toString(36));
 
   // Parse device resolution
   const [devWidth, devHeight] = (deviceResolution || '1080x1920').split('x').map(Number);
@@ -64,7 +66,7 @@ export default function ScreenViewer({ deviceSerial, deviceResolution, isOnline 
     const token = localStorage.getItem('token');
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsHost = window.location.host;
-    const wsUrl = `${wsProtocol}//${wsHost}/ws/screen?role=browser&serial=${encodeURIComponent(deviceSerial)}&token=${encodeURIComponent(token || '')}`;
+    const wsUrl = `${wsProtocol}//${wsHost}/ws/screen?role=browser&serial=${encodeURIComponent(deviceSerial)}&token=${encodeURIComponent(token || '')}&tabId=${encodeURIComponent(tabIdRef.current)}`;
 
     console.log('Screen WebSocket connecting...');
     const ws = new WebSocket(wsUrl);
