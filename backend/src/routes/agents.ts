@@ -33,7 +33,7 @@ router.post('/register', authenticateToken, async (req: Request, res: Response):
 router.get('/', authenticateToken, async (_req: Request, res: Response): Promise<void> => {
   try {
     const result = await pool.query(
-      'SELECT id, name, ip_address, status, last_heartbeat, system_info, created_at FROM agents ORDER BY created_at DESC'
+      'SELECT id, name, api_key, ip_address, status, last_heartbeat, system_info, created_at FROM agents ORDER BY created_at DESC'
     );
     res.json({ agents: result.rows });
   } catch (error) {

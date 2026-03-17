@@ -161,7 +161,7 @@ export default function AgentsPage() {
                     }`}
                   />
                 </div>
-                <div>
+                <div className="flex-1 min-w-0">
                   <h3 className="text-sm font-semibold text-white">{agent.name}</h3>
                   <div className="flex items-center gap-3 mt-1">
                     <div className="flex items-center gap-1">
@@ -190,6 +190,21 @@ export default function AgentsPage() {
                       </div>
                     )}
                   </div>
+                  {agent.api_key && (
+                    <div className="flex items-center gap-2 mt-2">
+                      <span className="text-[10px] text-dark-500">API Key:</span>
+                      <code className="text-[10px] text-dark-300 bg-dark-900 px-2 py-0.5 rounded font-mono">
+                        {agent.api_key}
+                      </code>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); copyToClipboard(agent.api_key!, agent.id); }}
+                        className="p-1 rounded text-dark-400 hover:text-white"
+                        title="Copy API Key"
+                      >
+                        {copiedKey === agent.id ? <Check className="w-3 h-3 text-green-400" /> : <Copy className="w-3 h-3" />}
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
               <button
