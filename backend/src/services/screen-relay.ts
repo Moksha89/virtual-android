@@ -133,12 +133,19 @@ export function setupScreenRelay(server: HttpServer): WebSocketServer {
 
       // Enforce max browser connections per device (unique tabs only)
       if (session.browsers.size >= MAX_BROWSERS_PER_DEVICE) {
+        const numToEvict = session.browsers.size - MAX_BROWSERS_PER_DEVICE + 1;
         const browsersArray = Array.from(session.browsers.entries());
-        // Sort by connection time, close oldest
-        browsersArray.sort((a, b) => (a[1].connectedAt || 0) - (b[1].connectedAt || 0));
-        const toRemove = browsersArray.slice(0, session.browsers.size - MAX_BROWSERS_PER_DEVICE + 1);
+        // Prioritize evicting legacy connections (old cached JS tabs) over stable tabId connections
+        // Sort: legacy tabs first (alphabetically "legacy-" comes before other IDs), then by oldest connectedAt
+        browsersArray.sort((a, b) => {
+          const aIsLegacy = a[0].startsWith('legacy-') ? 0 : 1;
+          const bIsLegacy = b[0].startsWith('legacy-') ? 0 : 1;
+          if (aIsLegacy !== bIsLegacy) return aIsLegacy - bIsLegacy; // legacy first
+          return (a[1].connectedAt || 0) - (b[1].connectedAt || 0); // then oldest first
+        });
+        const toRemove = browsersArray.slice(0, numToEvict);
         toRemove.forEach(([tid, old]) => {
-          console.log(`Closing excess browser connection (tab ${tid.substring(0, 8)}) for device: ${serial}`);
+          console.log(`Evicting browser (tab ${tid.substring(0, 8)}, legacy=${tid.startsWith('legacy-')}) for device: ${serial}`);
           session.browsers.delete(tid);
           if (old.readyState === WebSocket.OPEN) {
             old.close(4003, 'Too many browser connections');
