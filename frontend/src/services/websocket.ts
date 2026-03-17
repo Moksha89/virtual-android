@@ -10,7 +10,8 @@ class WebSocketService {
   private reconnectDelay = 2000;
 
   constructor() {
-    this.url = import.meta.env.VITE_WS_URL || 'ws://localhost:8000/ws';
+    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    this.url = import.meta.env.VITE_WS_URL || `${proto}//${window.location.host}/ws`;
   }
 
   connect(token?: string): void {
