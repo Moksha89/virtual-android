@@ -49,6 +49,9 @@ async function compressFrame(pngBuffer: Buffer): Promise<Buffer> {
 const latestFrameBuffer = new Map<string, Buffer>();
 const compressionActive = new Map<string, boolean>();
 
+// Cache last compressed frame per device for instant initial load
+const lastCompressedFrame = new Map<string, Buffer>();
+
 function processLatestFrame(serial: string, session: { agent: ScreenSocket | null; browsers: Map<string, ScreenSocket> }) {
   if (compressionActive.get(serial)) return; // Already processing
   const rawFrame = latestFrameBuffer.get(serial);
@@ -71,6 +74,9 @@ function processLatestFrame(serial: string, session: { agent: ScreenSocket | nul
       frameRelayCount = 0;
       lastFrameLogTime = now;
     }
+
+    // Cache this frame for instant delivery to new browser connections
+    lastCompressedFrame.set(serial, compressed);
 
     // Send to all browsers
     session.browsers.forEach((browser) => {
@@ -142,11 +148,8 @@ export function setupScreenRelay(server: HttpServer): WebSocketServer {
         }
       });
 
-      // Notify agent if browsers are already waiting
-      const activeBrowserCount = Array.from(session.browsers.values()).filter(b => b.readyState === WebSocket.OPEN).length;
-      if (activeBrowserCount > 0) {
-        ws.send(JSON.stringify({ type: 'start_streaming' }));
-      }
+      // Always start streaming immediately so frames are cached for instant initial load
+      ws.send(JSON.stringify({ type: 'start_streaming' }));
     } else if (role === 'browser') {
       const token = url.searchParams.get('token');
       if (token) {
@@ -226,6 +229,12 @@ export function setupScreenRelay(server: HttpServer): WebSocketServer {
 
       // Tell agent to start streaming if connected
       if (session.agent && session.agent.readyState === WebSocket.OPEN) {
+        // Send cached frame immediately for instant first paint
+        const cached = lastCompressedFrame.get(serial);
+        if (cached) {
+          ws.send(cached, { binary: true });
+          console.log(`Sent cached frame (${(cached.length / 1024).toFixed(0)}KB) to new browser for ${serial}`);
+        }
         session.agent.send(JSON.stringify({ type: 'start_streaming' }));
         ws.send(JSON.stringify({ type: 'agent_connected' }));
       } else {
@@ -296,10 +305,8 @@ export function setupScreenRelay(server: HttpServer): WebSocketServer {
           session.browsers.delete(ws.tabId);
         }
         console.log(`Screen browser disconnected for device: ${ws.deviceSerial}, tabId: ${(ws.tabId || '').substring(0, 8)}, remaining: ${session.browsers.size}`);
-        // Tell agent to stop streaming if no more browsers
-        if (session.browsers.size === 0 && session.agent && session.agent.readyState === WebSocket.OPEN) {
-          session.agent.send(JSON.stringify({ type: 'stop_streaming' }));
-        }
+        // Keep agent streaming even with no browsers so cached frames stay fresh
+        // (Agent will self-throttle via backpressure when no frames are being consumed)
         // Clean up if no agent either
         if (session.browsers.size === 0 && !session.agent) {
           screenSessions.delete(ws.deviceSerial || '');
