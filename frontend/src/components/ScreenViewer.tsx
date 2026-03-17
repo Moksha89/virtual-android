@@ -59,7 +59,7 @@ export default function ScreenViewer({ deviceSerial, deviceResolution, isOnline 
       if (event.data instanceof ArrayBuffer) {
         // Binary JPEG frame
         frameCountRef.current++;
-        const blob = new Blob([event.data], { type: 'image/jpeg' });
+        const blob = new Blob([event.data], { type: 'image/png' });
         const url = URL.createObjectURL(blob);
 
         // Revoke previous blob URL to prevent memory leak
@@ -100,7 +100,8 @@ export default function ScreenViewer({ deviceSerial, deviceResolution, isOnline 
     ws.onerror = () => {
       // Will trigger onclose
     };
-  }, [deviceSerial, isOnline, streaming]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deviceSerial, isOnline]);
 
   useEffect(() => {
     connectWebSocket();

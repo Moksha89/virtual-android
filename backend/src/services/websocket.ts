@@ -13,7 +13,7 @@ interface AuthenticatedWebSocket extends WebSocket {
 const clients = new Set<AuthenticatedWebSocket>();
 
 export function setupWebSocket(server: HttpServer): WebSocketServer {
-  const wss = new WebSocketServer({ server, path: '/ws' });
+  const wss = new WebSocketServer({ noServer: true });
 
   wss.on('connection', (ws: AuthenticatedWebSocket, req) => {
     const url = new URL(req.url || '', `http://${req.headers.host}`);

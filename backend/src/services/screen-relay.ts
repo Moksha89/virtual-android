@@ -22,7 +22,7 @@ const screenSessions = new Map<string, {
 }>();
 
 export function setupScreenRelay(server: HttpServer): WebSocketServer {
-  const wss = new WebSocketServer({ server, path: '/ws/screen' });
+  const wss = new WebSocketServer({ noServer: true });
 
   wss.on('connection', async (ws: ScreenSocket, req) => {
     const url = new URL(req.url || '', `http://${req.headers.host}`);

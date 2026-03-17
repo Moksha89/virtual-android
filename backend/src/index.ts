@@ -103,8 +103,25 @@ async function start(): Promise<void> {
 
     const server = http.createServer(app);
 
-    setupWebSocket(server);
-    setupScreenRelay(server);
+    const generalWss = setupWebSocket(server);
+    const screenWss = setupScreenRelay(server);
+
+    // Manually route WebSocket upgrade requests to the correct WSS
+    server.on('upgrade', (request, socket, head) => {
+      const { pathname } = new URL(request.url || '', `http://${request.headers.host}`);
+
+      if (pathname === '/ws/screen') {
+        screenWss.handleUpgrade(request, socket, head, (ws) => {
+          screenWss.emit('connection', ws, request);
+        });
+      } else if (pathname === '/ws') {
+        generalWss.handleUpgrade(request, socket, head, (ws) => {
+          generalWss.emit('connection', ws, request);
+        });
+      } else {
+        socket.destroy();
+      }
+    });
 
     server.listen(PORT, '0.0.0.0', () => {
       console.log(`Mobile Manager Backend running on port ${PORT}`);
