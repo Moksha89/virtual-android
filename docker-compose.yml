@@ -1,0 +1,79 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: mm_db
+    restart: always
+    environment:
+      POSTGRES_DB: mobilemanager
+      POSTGRES_USER: mobilemanager
+      POSTGRES_PASSWORD: mobilemanager123
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mobilemanager"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: mm_redis
+    restart: always
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: mm_backend
+    restart: always
+    environment:
+      PORT: "8000"
+      DATABASE_URL: postgresql://mobilemanager:mobilemanager123@db:5432/mobilemanager
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: mm-super-secret-jwt-key-2024-change-me
+      JWT_EXPIRES_IN: 7d
+      CORS_ORIGINS: "*"
+      AGENT_API_KEY: mm-agent-default-key
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ""
+        VITE_WS_URL: ""
+    container_name: mm_frontend
+    restart: always
+
+  nginx:
+    image: nginx:alpine
+    container_name: mm_nginx
+    restart: always
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - backend
+      - frontend
+
+volumes:
+  pgdata:
