@@ -114,11 +114,17 @@ export default function ScreenViewer({ deviceSerial, deviceResolution, isOnline 
       }
     };
 
-    ws.onclose = () => {
-      console.log('Screen WebSocket closed');
+    ws.onclose = (event) => {
+      console.log('Screen WebSocket closed, code:', event.code, event.reason);
       setConnected(false);
       setStreaming(false);
-      // Only reconnect if this is still the active WebSocket and component is mounted
+      // Do NOT reconnect if evicted for too many connections (code 4003)
+      // or if this is no longer the active WebSocket or component unmounted
+      if (event.code === 4003) {
+        console.log('Connection evicted (too many tabs). Not reconnecting.');
+        wsRef.current = null;
+        return;
+      }
       if (wsRef.current === ws && mountedRef.current && isOnline) {
         wsRef.current = null;
         reconnectTimerRef.current = setTimeout(connectWebSocket, 3000);

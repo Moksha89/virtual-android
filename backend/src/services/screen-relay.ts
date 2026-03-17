@@ -6,7 +6,7 @@ import { JwtPayload } from '../types';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'default-secret-change-me';
 const AGENT_API_KEY = process.env.AGENT_API_KEY || '';
-const MAX_BROWSERS_PER_DEVICE = 5;
+const MAX_BROWSERS_PER_DEVICE = 2;
 
 interface ScreenSocket extends WebSocket {
   role?: 'agent' | 'browser';
