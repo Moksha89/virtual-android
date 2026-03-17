@@ -91,9 +91,9 @@ export default function ScreenViewer({ deviceSerial, deviceResolution, isOnline 
 
     ws.onmessage = (event) => {
       if (event.data instanceof ArrayBuffer) {
-        // Binary PNG frame
+        // Binary frame (JPEG from server compression)
         frameCountRef.current++;
-        const blob = new Blob([event.data], { type: 'image/png' });
+        const blob = new Blob([event.data], { type: 'image/jpeg' });
         const url = URL.createObjectURL(blob);
 
         // Keep reference to old URL to revoke after new image loads

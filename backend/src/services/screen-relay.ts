@@ -1,6 +1,7 @@
 import { Server as HttpServer } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import jwt from 'jsonwebtoken';
+import sharp from 'sharp';
 import pool from '../config/database';
 import { JwtPayload } from '../types';
 
@@ -27,6 +28,25 @@ const screenSessions = new Map<string, {
 // Track frame relay stats
 let frameRelayCount = 0;
 let lastFrameLogTime = Date.now();
+
+// Frame compression settings
+const JPEG_QUALITY = 40; // Low quality = small size = fast transfer
+const SCALE_FACTOR = 0.5; // Scale down to 50% resolution
+
+async function compressFrame(pngBuffer: Buffer): Promise<Buffer> {
+  try {
+    const metadata = await sharp(pngBuffer).metadata();
+    const width = metadata.width || 1080;
+    const targetWidth = Math.round(width * SCALE_FACTOR);
+    return await sharp(pngBuffer)
+      .resize(targetWidth)
+      .jpeg({ quality: JPEG_QUALITY, mozjpeg: true })
+      .toBuffer();
+  } catch {
+    // If compression fails, return original
+    return pngBuffer;
+  }
+}
 
 export function setupScreenRelay(server: HttpServer): WebSocketServer {
   const wss = new WebSocketServer({ noServer: true });
@@ -189,23 +209,27 @@ export function setupScreenRelay(server: HttpServer): WebSocketServer {
       if (ws.role === 'agent') {
         // Agent sending frame data (binary PNG) or JSON messages
         if (isBinary) {
-          // Binary frame data - relay to all open browsers
-          const frameSize = (data as Buffer).length;
+          // Binary frame data - compress PNG to JPEG and relay to all open browsers
+          const originalSize = (data as Buffer).length;
           frameRelayCount++;
 
-          // Log frame stats every 10 seconds
-          const now = Date.now();
-          if (now - lastFrameLogTime > 10000) {
-            const activeBrowsers = Array.from(session.browsers.values()).filter(b => b.readyState === WebSocket.OPEN).length;
-            console.log(`Frame relay stats: ${frameRelayCount} frames relayed, ${frameSize} bytes last frame, ${activeBrowsers} active browsers for ${ws.deviceSerial}`);
-            frameRelayCount = 0;
-            lastFrameLogTime = now;
-          }
-
-          session.browsers.forEach((browser) => {
-            if (browser.readyState === WebSocket.OPEN) {
-              browser.send(data, { binary: true });
+          // Compress frame in background, then send
+          compressFrame(data as Buffer).then((compressed) => {
+            // Log frame stats every 10 seconds
+            const now = Date.now();
+            if (now - lastFrameLogTime > 10000) {
+              const activeBrowsers = Array.from(session.browsers.values()).filter(b => b.readyState === WebSocket.OPEN).length;
+              const ratio = ((1 - compressed.length / originalSize) * 100).toFixed(0);
+              console.log(`Frame relay: ${frameRelayCount} frames, ${(originalSize / 1024).toFixed(0)}KB→${(compressed.length / 1024).toFixed(0)}KB (${ratio}% smaller), ${activeBrowsers} browsers for ${ws.deviceSerial}`);
+              frameRelayCount = 0;
+              lastFrameLogTime = now;
             }
+
+            session.browsers.forEach((browser) => {
+              if (browser.readyState === WebSocket.OPEN) {
+                browser.send(compressed, { binary: true });
+              }
+            });
           });
         } else {
           // JSON message from agent (e.g., status updates)

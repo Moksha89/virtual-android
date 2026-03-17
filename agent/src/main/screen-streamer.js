@@ -143,49 +143,49 @@ class ScreenStreamer extends EventEmitter {
   }
 
   startCapturing(serial, streamState) {
-    if (streamState.interval) return;
+    if (streamState.looping) return;
+    streamState.looping = true;
 
-    streamState.interval = setInterval(async () => {
-      if (!streamState.streaming || streamState.capturing) return;
-      if (streamState.ws.readyState !== WebSocket.OPEN) return;
-
-      streamState.capturing = true;
-      try {
-        const frameBuffer = await this.adbManager.screencapOptimized(serial);
-        if (!frameBuffer || frameBuffer.length === 0) {
-          return;
+    // Continuous capture loop - no idle gaps between frames
+    const captureLoop = async () => {
+      while (streamState.streaming && streamState.looping) {
+        if (streamState.ws.readyState !== WebSocket.OPEN) {
+          await new Promise(r => setTimeout(r, 100));
+          continue;
         }
 
-        if (streamState.ws.readyState === WebSocket.OPEN) {
-          streamState.ws.send(frameBuffer, { binary: true });
-          streamState.framesSent++;
-          if (streamState.framesSent % 50 === 1) {
-            console.log(`[${serial}] Frame #${streamState.framesSent} sent, size: ${(frameBuffer.length / 1024).toFixed(0)}KB, format: ${this.useJpeg ? 'JPEG' : 'PNG'}`);
+        try {
+          const frameBuffer = await this.adbManager.screencapOptimized(serial);
+          if (frameBuffer && frameBuffer.length > 0 && streamState.ws.readyState === WebSocket.OPEN) {
+            streamState.ws.send(frameBuffer, { binary: true });
+            streamState.framesSent++;
+            if (streamState.framesSent % 100 === 1) {
+              console.log(`[${serial}] Frame #${streamState.framesSent} sent, size: ${(frameBuffer.length / 1024).toFixed(0)}KB`);
+            }
           }
-        }
-      } catch (err) {
-        // Only log non-transient errors
-        if (!err.message.includes('device not found') && !err.message.includes('no devices')) {
-          if (streamState.framesSent === 0) {
-            console.error(`[${serial}] Screencap error: ${err.message}`);
+        } catch (err) {
+          if (!err.message.includes('device not found') && !err.message.includes('no devices')) {
+            if (streamState.framesSent === 0) {
+              console.error(`[${serial}] Screencap error: ${err.message}`);
+            }
           }
+          // Brief pause on error before retrying
+          await new Promise(r => setTimeout(r, 200));
         }
-      } finally {
-        streamState.capturing = false;
       }
-    }, this.frameInterval);
+      streamState.looping = false;
+    };
+
+    captureLoop();
   }
 
   stopCapturing(streamState) {
-    if (streamState.interval) {
-      clearInterval(streamState.interval);
-      streamState.interval = null;
-    }
+    streamState.streaming = false;
+    streamState.looping = false;
     if (streamState.pingInterval) {
       clearInterval(streamState.pingInterval);
       streamState.pingInterval = null;
     }
-    streamState.streaming = false;
   }
 
   stopForDevice(serial) {
