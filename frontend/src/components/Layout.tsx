@@ -10,6 +10,7 @@ import {
   Menu,
   X,
   Wifi,
+  Download,
 } from 'lucide-react';
 
 interface LayoutProps {
@@ -24,6 +25,7 @@ const navItems = [
   { path: '/agents', label: 'Agents', icon: Server },
   { path: '/sessions', label: 'Sessions', icon: Activity },
   { path: '/settings', label: 'Settings', icon: Settings },
+  { path: '/download', label: 'Download Agent', icon: Download },
 ];
 
 export default function Layout({ children, user, onLogout }: LayoutProps) {

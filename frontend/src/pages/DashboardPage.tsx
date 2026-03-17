@@ -6,6 +6,8 @@ import {
   WifiOff,
   Server,
   Activity,
+  Download,
+  Monitor,
 } from 'lucide-react';
 import { useDevices } from '../hooks/useDevices';
 import StatsCard from '../components/StatsCard';
@@ -84,6 +86,30 @@ export default function DashboardPage() {
           icon={Server}
           color="purple"
         />
+      </div>
+
+      {/* Download Agent Section */}
+      <div className="bg-gradient-to-r from-primary-600/20 to-primary-800/10 rounded-xl border border-primary-500/30 p-6">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 bg-primary-600/30 rounded-xl flex items-center justify-center">
+              <Monitor className="w-6 h-6 text-primary-400" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-white">Windows Gateway Agent</h2>
+              <p className="text-dark-400 text-sm mt-0.5">
+                Install on your Windows PC to connect Android devices to this dashboard
+              </p>
+            </div>
+          </div>
+          <a
+            href="/downloads/Mobile%20Manager%20Agent%20Setup%201.0.0.exe"
+            className="flex items-center gap-2 px-5 py-2.5 bg-primary-600 hover:bg-primary-700 text-white text-sm font-medium rounded-lg transition-colors"
+          >
+            <Download className="w-4 h-4" />
+            Download Agent v1.0.0
+          </a>
+        </div>
       </div>
 
       {/* Devices Section */}

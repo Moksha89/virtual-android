@@ -10,6 +10,7 @@ import DeviceDetailPage from './pages/DeviceDetailPage';
 import AgentsPage from './pages/AgentsPage';
 import SessionsPage from './pages/SessionsPage';
 import SettingsPage from './pages/SettingsPage';
+import DownloadPage from './pages/DownloadPage';
 
 function App() {
   const { user, loading, error, login, register, logout } = useAuth();
@@ -48,6 +49,7 @@ function App() {
           <Route path="/agents" element={<AgentsPage />} />
           <Route path="/sessions" element={<SessionsPage />} />
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/download" element={<DownloadPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </Layout>
