@@ -1,6 +1,5 @@
 const EventEmitter = require('events');
 const WebSocket = require('ws');
-const sharp = require('sharp');
 
 class ScreenStreamer extends EventEmitter {
   constructor(serverUrl, apiKey, adbManager) {
@@ -10,8 +9,6 @@ class ScreenStreamer extends EventEmitter {
     this.adbManager = adbManager;
     this.activeStreams = new Map(); // serial -> { ws, interval, streaming }
     this.frameInterval = 200; // ~5 FPS
-    this.jpegQuality = 50; // JPEG quality (lower = smaller, faster)
-    this.maxWidth = 720; // Scale down for faster transfer
   }
 
   startForDevice(serial) {
@@ -116,14 +113,9 @@ class ScreenStreamer extends EventEmitter {
         const pngBuffer = await this.adbManager.screencapRaw(serial);
         if (!pngBuffer || pngBuffer.length === 0) return;
 
-        // Convert PNG to smaller JPEG and resize
-        const jpegBuffer = await sharp(pngBuffer)
-          .resize({ width: this.maxWidth, withoutEnlargement: true })
-          .jpeg({ quality: this.jpegQuality })
-          .toBuffer();
-
+        // Send PNG frames directly (no sharp dependency needed)
         if (streamState.ws.readyState === WebSocket.OPEN) {
-          streamState.ws.send(jpegBuffer, { binary: true });
+          streamState.ws.send(pngBuffer, { binary: true });
         }
       } catch (err) {
         // Silently handle capture errors (device might be temporarily busy)
@@ -187,13 +179,6 @@ class ScreenStreamer extends EventEmitter {
     this.frameInterval = Math.max(100, Math.round(1000 / fps));
   }
 
-  setQuality(quality) {
-    this.jpegQuality = Math.max(10, Math.min(100, quality));
-  }
-
-  setMaxWidth(width) {
-    this.maxWidth = Math.max(320, Math.min(1920, width));
-  }
 }
 
 module.exports = { ScreenStreamer };
