@@ -5,21 +5,17 @@ const path = require('path');
 const os = require('os');
 const { execFile } = require('child_process');
 
-const CURRENT_VERSION = require('../../../package.json').version;
 const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000; // Check every 6 hours
 
 class AutoUpdater extends EventEmitter {
-  constructor(serverUrl) {
+  constructor(serverUrl, version) {
     super();
     this.serverUrl = serverUrl ? serverUrl.replace(/\/$/, '') : '';
+    this.version = version || '1.0.0';
     this.checkTimer = null;
     this.updateInfo = null;
     this.isDownloading = false;
     this.downloadedPath = null;
-  }
-
-  get currentVersion() {
-    return CURRENT_VERSION;
   }
 
   start() {
@@ -39,7 +35,7 @@ class AutoUpdater extends EventEmitter {
   async checkForUpdate() {
     if (!this.serverUrl) return;
     try {
-      const url = `${this.serverUrl}/api/agents/check-update?version=${encodeURIComponent(CURRENT_VERSION)}&platform=${process.platform}`;
+      const url = `${this.serverUrl}/api/agents/check-update?version=${encodeURIComponent(this.version)}&platform=${process.platform}`;
       const response = await fetch(url, { timeout: 15000 });
       if (!response.ok) return;
 
@@ -48,14 +44,14 @@ class AutoUpdater extends EventEmitter {
       if (data.has_update) {
         this.updateInfo = data;
         this.emit('update-available', {
-          currentVersion: CURRENT_VERSION,
+          currentVersion: this.version,
           latestVersion: data.latest_version,
           downloadUrl: data.download_url,
           releaseNotes: data.release_notes,
           mandatory: data.mandatory,
         });
       } else {
-        this.emit('up-to-date', { version: CURRENT_VERSION });
+        this.emit('up-to-date', { version: this.version });
       }
     } catch (err) {
       // Silently ignore update check failures - don't disrupt the agent
@@ -148,4 +144,4 @@ class AutoUpdater extends EventEmitter {
   }
 }
 
-module.exports = { AutoUpdater, CURRENT_VERSION };
+module.exports = { AutoUpdater };

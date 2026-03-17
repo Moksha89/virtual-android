@@ -6,7 +6,7 @@ const { AdbManager } = require('./adb-manager');
 const { ServerBridge } = require('./server-bridge');
 const { SetupManager } = require('./setup-manager');
 const { ScreenStreamer } = require('./screen-streamer');
-const { AutoUpdater, CURRENT_VERSION } = require('./auto-updater');
+const { AutoUpdater } = require('./auto-updater');
 
 // Single instance lock
 const gotLock = app.requestSingleInstanceLock();
@@ -273,7 +273,7 @@ function setupIPC() {
   });
 
   // Auto-update
-  ipcMain.handle('get-version', () => CURRENT_VERSION);
+  ipcMain.handle('get-version', () => app.getVersion());
 
   ipcMain.handle('check-update', async () => {
     if (!autoUpdater) return { error: 'Updater not initialized' };
@@ -376,7 +376,7 @@ function startBridge() {
   serverBridge.start();
 
   // Initialize auto-updater
-  autoUpdater = new AutoUpdater(serverUrl);
+  autoUpdater = new AutoUpdater(serverUrl, app.getVersion());
 
   autoUpdater.on('update-available', (info) => {
     sendToRenderer('update-available', info);
