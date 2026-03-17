@@ -19,6 +19,9 @@ contextBridge.exposeInMainWorld('api', {
   getStatus: () => ipcRenderer.invoke('get-status'),
   openWebDashboard: () => ipcRenderer.invoke('open-web-dashboard'),
 
+  // Screen streaming
+  getStreamStatus: () => ipcRenderer.invoke('get-stream-status'),
+
   // Events from main process
   onStatusUpdate: (callback) => {
     ipcRenderer.on('status-update', (_, data) => callback(data));
@@ -34,5 +37,8 @@ contextBridge.exposeInMainWorld('api', {
   },
   onError: (callback) => {
     ipcRenderer.on('error', (_, data) => callback(data));
+  },
+  onStreamStatus: (callback) => {
+    ipcRenderer.on('stream-status', (_, data) => callback(data));
   },
 });

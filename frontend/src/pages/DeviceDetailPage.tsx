@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import api from '../services/api';
 import { Device, DeviceLog } from '../types';
+import ScreenViewer from '../components/ScreenViewer';
 
 export default function DeviceDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -115,23 +116,12 @@ export default function DeviceDetailPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left: Screen placeholder & controls */}
         <div className="lg:col-span-2 space-y-6">
-          {/* Screen Viewer Placeholder */}
-          <div className="bg-dark-800 rounded-xl border border-dark-700 overflow-hidden">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-dark-700">
-              <div className="flex items-center gap-2">
-                <Monitor className="w-4 h-4 text-primary-400" />
-                <span className="text-sm font-medium text-white">Live Screen</span>
-              </div>
-              <span className="text-xs text-dark-500">Phase 2 - WebRTC</span>
-            </div>
-            <div className="aspect-[9/16] max-h-96 bg-dark-900 flex items-center justify-center">
-              <div className="text-center">
-                <Monitor className="w-16 h-16 text-dark-700 mx-auto mb-3" />
-                <p className="text-dark-500 text-sm">Live screen view coming in Phase 2</p>
-                <p className="text-dark-600 text-xs mt-1">WebRTC peer-to-peer streaming</p>
-              </div>
-            </div>
-          </div>
+          {/* Live Screen Viewer */}
+          <ScreenViewer
+            deviceSerial={device.serial}
+            deviceResolution={device.screen_resolution}
+            isOnline={isOnline}
+          />
 
           {/* Quick Actions */}
           <div className="bg-dark-800 rounded-xl border border-dark-700 p-4">

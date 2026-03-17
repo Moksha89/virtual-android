@@ -5,6 +5,7 @@ const AutoLaunch = require('auto-launch');
 const { AdbManager } = require('./adb-manager');
 const { ServerBridge } = require('./server-bridge');
 const { SetupManager } = require('./setup-manager');
+const { ScreenStreamer } = require('./screen-streamer');
 
 // Single instance lock
 const gotLock = app.requestSingleInstanceLock();
@@ -30,6 +31,7 @@ let tray = null;
 let adbManager = null;
 let serverBridge = null;
 let setupManager = null;
+let screenStreamer = null;
 let isQuitting = false;
 
 function createWindow() {
@@ -267,6 +269,20 @@ function setupIPC() {
     const serverUrl = store.get('serverUrl');
     if (serverUrl) shell.openExternal(serverUrl);
   });
+
+  // Screen streaming
+  ipcMain.handle('get-stream-status', () => {
+    if (!screenStreamer) return { active: false, streams: [] };
+    const streams = [];
+    for (const [serial, state] of screenStreamer.activeStreams) {
+      streams.push({
+        serial,
+        connected: state.ws && state.ws.readyState === 1,
+        streaming: state.streaming,
+      });
+    }
+    return { active: true, streams };
+  });
 }
 
 function sendToRenderer(channel, data) {
@@ -315,6 +331,10 @@ function startBridge() {
 
   serverBridge.on('devices', (devices) => {
     sendToRenderer('devices-update', devices);
+    // Update screen streamer with current devices
+    if (screenStreamer) {
+      screenStreamer.updateDevices(devices);
+    }
   });
 
   serverBridge.on('heartbeat', (result) => {
@@ -326,6 +346,25 @@ function startBridge() {
   });
 
   serverBridge.start();
+
+  // Initialize screen streamer
+  screenStreamer = new ScreenStreamer(serverUrl, apiKey, adbManager);
+
+  screenStreamer.on('stream_connected', (data) => {
+    sendToRenderer('stream-status', { serial: data.serial, status: 'connected' });
+  });
+
+  screenStreamer.on('stream_started', (data) => {
+    sendToRenderer('stream-status', { serial: data.serial, status: 'streaming' });
+  });
+
+  screenStreamer.on('stream_stopped', (data) => {
+    sendToRenderer('stream-status', { serial: data.serial, status: 'stopped' });
+  });
+
+  screenStreamer.on('stream_disconnected', (data) => {
+    sendToRenderer('stream-status', { serial: data.serial, status: 'disconnected' });
+  });
 }
 
 // App lifecycle
@@ -362,6 +401,9 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   isQuitting = true;
+  if (screenStreamer) {
+    screenStreamer.stopAll();
+  }
   if (serverBridge) {
     serverBridge.stop();
   }

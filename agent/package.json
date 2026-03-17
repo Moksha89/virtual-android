@@ -14,7 +14,9 @@
     "auto-launch": "^5.0.6",
     "electron-store": "^8.2.0",
     "node-fetch": "^2.7.0",
-    "uuid": "^10.0.0"
+    "sharp": "^0.33.2",
+    "uuid": "^10.0.0",
+    "ws": "^8.16.0"
   },
   "devDependencies": {
     "electron": "^28.3.3",

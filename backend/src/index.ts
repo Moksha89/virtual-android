@@ -5,6 +5,7 @@ import dotenv from 'dotenv';
 import { initDatabase } from './config/database';
 import { initRedis } from './config/redis';
 import { setupWebSocket, getConnectedClientsCount } from './services/websocket';
+import { setupScreenRelay, getActiveScreenSessions } from './services/screen-relay';
 import authRoutes from './routes/auth';
 import deviceRoutes from './routes/devices';
 import agentRoutes from './routes/agents';
@@ -30,6 +31,7 @@ app.get('/healthz', (_req, res) => {
     version: '1.0.0',
     timestamp: new Date().toISOString(),
     websocket_clients: getConnectedClientsCount(),
+    screen_sessions: getActiveScreenSessions(),
   });
 });
 
@@ -102,6 +104,7 @@ async function start(): Promise<void> {
     const server = http.createServer(app);
 
     setupWebSocket(server);
+    setupScreenRelay(server);
 
     server.listen(PORT, '0.0.0.0', () => {
       console.log(`Mobile Manager Backend running on port ${PORT}`);

@@ -146,6 +146,39 @@ class AdbManager {
     return stdout.trim();
   }
 
+  async tap(serial, x, y) {
+    await execAsync(`"${this.adbPath}" -s ${serial} shell input tap ${Math.round(x)} ${Math.round(y)}`);
+    return { success: true };
+  }
+
+  async swipe(serial, x1, y1, x2, y2, duration = 300) {
+    await execAsync(
+      `"${this.adbPath}" -s ${serial} shell input swipe ${Math.round(x1)} ${Math.round(y1)} ${Math.round(x2)} ${Math.round(y2)} ${duration}`
+    );
+    return { success: true };
+  }
+
+  async keyevent(serial, keycode) {
+    await execAsync(`"${this.adbPath}" -s ${serial} shell input keyevent ${keycode}`);
+    return { success: true };
+  }
+
+  async inputText(serial, text) {
+    // Escape special characters for shell
+    const escaped = text.replace(/(["'`\\$!&|;()<> ])/g, '\\$1');
+    await execAsync(`"${this.adbPath}" -s ${serial} shell input text "${escaped}"`);
+    return { success: true };
+  }
+
+  async screencapRaw(serial) {
+    // Return raw PNG buffer from screencap
+    const { stdout } = await execAsync(
+      `"${this.adbPath}" -s ${serial} exec-out screencap -p`,
+      { encoding: 'buffer', maxBuffer: 20 * 1024 * 1024 }
+    );
+    return stdout;
+  }
+
   async restartAdb() {
     try {
       await execAsync(`"${this.adbPath}" kill-server`);
