@@ -6,6 +6,7 @@ import { JwtPayload } from '../types';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'default-secret-change-me';
 const AGENT_API_KEY = process.env.AGENT_API_KEY || '';
+const MAX_BROWSERS_PER_DEVICE = 5;
 
 interface ScreenSocket extends WebSocket {
   role?: 'agent' | 'browser';
@@ -13,6 +14,7 @@ interface ScreenSocket extends WebSocket {
   agentId?: string;
   userId?: string;
   isAlive?: boolean;
+  connectedAt?: number;
 }
 
 // Map: deviceSerial -> { agent: ScreenSocket, browsers: Set<ScreenSocket> }
@@ -112,6 +114,22 @@ export function setupScreenRelay(server: HttpServer): WebSocketServer {
       });
       deadBrowsers.forEach((b) => session.browsers.delete(b));
 
+      // Enforce max browser connections per device - close oldest if limit exceeded
+      if (session.browsers.size >= MAX_BROWSERS_PER_DEVICE) {
+        const browsersArray = Array.from(session.browsers) as ScreenSocket[];
+        // Sort by connection time, close oldest
+        browsersArray.sort((a, b) => (a.connectedAt || 0) - (b.connectedAt || 0));
+        const toRemove = browsersArray.slice(0, session.browsers.size - MAX_BROWSERS_PER_DEVICE + 1);
+        toRemove.forEach((old) => {
+          console.log(`Closing excess browser connection for device: ${serial}`);
+          session.browsers.delete(old);
+          if (old.readyState === WebSocket.OPEN) {
+            old.close(4003, 'Too many browser connections');
+          }
+        });
+      }
+
+      ws.connectedAt = Date.now();
       session.browsers.add(ws);
 
       console.log(`Screen browser connected for device: ${serial}, total browsers: ${session.browsers.size}`);
@@ -216,17 +234,32 @@ export function setupScreenRelay(server: HttpServer): WebSocketServer {
     });
   });
 
-  // Heartbeat to detect dead connections
+  // Heartbeat to detect dead connections (every 15s)
   const heartbeatInterval = setInterval(() => {
     wss.clients.forEach((ws) => {
       const screenWs = ws as ScreenSocket;
       if (screenWs.isAlive === false) {
+        console.log(`Terminating dead ${screenWs.role} connection for ${screenWs.deviceSerial}`);
         return screenWs.terminate();
       }
       screenWs.isAlive = false;
       screenWs.ping();
     });
-  }, 30000);
+
+    // Also clean up dead browsers from sessions
+    screenSessions.forEach((session, serial) => {
+      const deadBrowsers: ScreenSocket[] = [];
+      session.browsers.forEach((browser) => {
+        if (browser.readyState !== WebSocket.OPEN && browser.readyState !== WebSocket.CONNECTING) {
+          deadBrowsers.push(browser);
+        }
+      });
+      if (deadBrowsers.length > 0) {
+        deadBrowsers.forEach((b) => session.browsers.delete(b));
+        console.log(`Cleaned up ${deadBrowsers.length} dead browser connections for ${serial}, remaining: ${session.browsers.size}`);
+      }
+    });
+  }, 15000);
 
   wss.on('close', () => {
     clearInterval(heartbeatInterval);
