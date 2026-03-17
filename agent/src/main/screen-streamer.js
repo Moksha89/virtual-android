@@ -8,7 +8,7 @@ class ScreenStreamer extends EventEmitter {
     this.apiKey = apiKey;
     this.adbManager = adbManager;
     this.activeStreams = new Map(); // serial -> { ws, interval, streaming }
-    this.frameInterval = 200; // ~5 FPS
+    this.frameInterval = 100; // ~10 FPS target (actual will be limited by screencap speed)
   }
 
   startForDevice(serial) {
@@ -81,6 +81,31 @@ class ScreenStreamer extends EventEmitter {
             await this.adbManager.inputText(serial, msg.text);
             break;
 
+          case 'wake':
+            console.log(`Waking screen on ${serial}`);
+            await this.adbManager.wakeScreen(serial);
+            break;
+
+          case 'sleep':
+            console.log(`Sleeping screen on ${serial}`);
+            await this.adbManager.sleepScreen(serial);
+            break;
+
+          case 'unlock_pin':
+            console.log(`Unlocking with PIN on ${serial}`);
+            await this.adbManager.unlockPin(serial, msg.pin);
+            break;
+
+          case 'unlock_pattern':
+            console.log(`Unlocking with pattern on ${serial}`);
+            await this.adbManager.unlockPattern(serial, msg.pattern);
+            break;
+
+          case 'swipe_gesture':
+            console.log(`Executing swipe gesture: ${msg.direction} on ${serial}`);
+            await this.adbManager.swipeGesture(serial, msg.direction);
+            break;
+
           default:
             console.log(`Unknown screen message type: ${msg.type}`);
         }
@@ -126,17 +151,16 @@ class ScreenStreamer extends EventEmitter {
 
       streamState.capturing = true;
       try {
-        const pngBuffer = await this.adbManager.screencapRaw(serial);
-        if (!pngBuffer || pngBuffer.length === 0) {
+        const frameBuffer = await this.adbManager.screencapOptimized(serial);
+        if (!frameBuffer || frameBuffer.length === 0) {
           return;
         }
 
-        // Send PNG frames directly (no sharp dependency needed)
         if (streamState.ws.readyState === WebSocket.OPEN) {
-          streamState.ws.send(pngBuffer, { binary: true });
+          streamState.ws.send(frameBuffer, { binary: true });
           streamState.framesSent++;
-          if (streamState.framesSent % 25 === 1) {
-            console.log(`[${serial}] Frame #${streamState.framesSent} sent, size: ${(pngBuffer.length / 1024).toFixed(0)}KB`);
+          if (streamState.framesSent % 50 === 1) {
+            console.log(`[${serial}] Frame #${streamState.framesSent} sent, size: ${(frameBuffer.length / 1024).toFixed(0)}KB, format: ${this.useJpeg ? 'JPEG' : 'PNG'}`);
           }
         }
       } catch (err) {

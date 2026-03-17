@@ -12,6 +12,15 @@ import {
   Keyboard,
   Maximize2,
   Minimize2,
+  Sun,
+  Moon,
+  Unlock,
+  ChevronUp,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Lock,
+  Menu,
 } from 'lucide-react';
 
 interface ScreenViewerProps {
@@ -26,7 +35,9 @@ export default function ScreenViewer({ deviceSerial, deviceResolution, isOnline 
   const [fps, setFps] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showKeyboard, setShowKeyboard] = useState(false);
+  const [showUnlock, setShowUnlock] = useState(false);
   const [textInput, setTextInput] = useState('');
+  const [pinInput, setPinInput] = useState('');
   const [swipeStart, setSwipeStart] = useState<{ x: number; y: number } | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const imgRef = useRef<HTMLImageElement>(null);
@@ -328,64 +339,191 @@ export default function ScreenViewer({ deviceSerial, deviceResolution, isOnline 
         )}
       </div>
 
-      {/* Android Navigation Buttons */}
-      <div className="flex items-center justify-center gap-6 py-3 border-t border-dark-700 bg-dark-850">
+      {/* Primary Navigation Buttons */}
+      <div className="flex items-center justify-center gap-4 py-2 border-t border-dark-700 bg-dark-850">
         <button
           onClick={() => handleKeyEvent(4)}
-          disabled={!streaming}
-          className="flex flex-col items-center gap-1 p-2 rounded-lg text-dark-400 hover:text-white hover:bg-dark-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+          disabled={!connected}
+          className="flex flex-col items-center gap-0.5 p-1.5 rounded-lg text-dark-400 hover:text-white hover:bg-dark-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
           title="Back"
         >
-          <BackIcon className="w-5 h-5" />
-          <span className="text-[10px]">Back</span>
+          <BackIcon className="w-4 h-4" />
+          <span className="text-[9px]">Back</span>
         </button>
         <button
           onClick={() => handleKeyEvent(3)}
-          disabled={!streaming}
-          className="flex flex-col items-center gap-1 p-2 rounded-lg text-dark-400 hover:text-white hover:bg-dark-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+          disabled={!connected}
+          className="flex flex-col items-center gap-0.5 p-1.5 rounded-lg text-dark-400 hover:text-white hover:bg-dark-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
           title="Home"
         >
-          <Home className="w-5 h-5" />
-          <span className="text-[10px]">Home</span>
+          <Home className="w-4 h-4" />
+          <span className="text-[9px]">Home</span>
         </button>
         <button
           onClick={() => handleKeyEvent(187)}
-          disabled={!streaming}
-          className="flex flex-col items-center gap-1 p-2 rounded-lg text-dark-400 hover:text-white hover:bg-dark-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+          disabled={!connected}
+          className="flex flex-col items-center gap-0.5 p-1.5 rounded-lg text-dark-400 hover:text-white hover:bg-dark-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
           title="Recent Apps"
         >
-          <Square className="w-5 h-5" />
-          <span className="text-[10px]">Recent</span>
+          <Square className="w-4 h-4" />
+          <span className="text-[9px]">Recent</span>
         </button>
-        <div className="w-px h-8 bg-dark-700" />
+        <div className="w-px h-6 bg-dark-700" />
+        <button
+          onClick={() => sendCommand({ type: 'wake' })}
+          disabled={!connected}
+          className="flex flex-col items-center gap-0.5 p-1.5 rounded-lg text-dark-400 hover:text-yellow-400 hover:bg-dark-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+          title="Wake Screen"
+        >
+          <Sun className="w-4 h-4" />
+          <span className="text-[9px]">Wake</span>
+        </button>
+        <button
+          onClick={() => sendCommand({ type: 'sleep' })}
+          disabled={!connected}
+          className="flex flex-col items-center gap-0.5 p-1.5 rounded-lg text-dark-400 hover:text-blue-400 hover:bg-dark-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+          title="Lock Screen"
+        >
+          <Moon className="w-4 h-4" />
+          <span className="text-[9px]">Lock</span>
+        </button>
+        <button
+          onClick={() => setShowUnlock(!showUnlock)}
+          disabled={!connected}
+          className={`flex flex-col items-center gap-0.5 p-1.5 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${showUnlock ? 'bg-green-600/30 text-green-400' : 'text-dark-400 hover:text-green-400 hover:bg-dark-700'}`}
+          title="Unlock Device"
+        >
+          <Unlock className="w-4 h-4" />
+          <span className="text-[9px]">Unlock</span>
+        </button>
+        <div className="w-px h-6 bg-dark-700" />
         <button
           onClick={() => handleKeyEvent(24)}
-          disabled={!streaming}
-          className="flex flex-col items-center gap-1 p-2 rounded-lg text-dark-400 hover:text-white hover:bg-dark-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+          disabled={!connected}
+          className="flex flex-col items-center gap-0.5 p-1.5 rounded-lg text-dark-400 hover:text-white hover:bg-dark-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
           title="Volume Up"
         >
-          <Volume2 className="w-5 h-5" />
-          <span className="text-[10px]">Vol+</span>
+          <Volume2 className="w-4 h-4" />
+          <span className="text-[9px]">Vol+</span>
         </button>
         <button
           onClick={() => handleKeyEvent(25)}
-          disabled={!streaming}
-          className="flex flex-col items-center gap-1 p-2 rounded-lg text-dark-400 hover:text-white hover:bg-dark-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+          disabled={!connected}
+          className="flex flex-col items-center gap-0.5 p-1.5 rounded-lg text-dark-400 hover:text-white hover:bg-dark-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
           title="Volume Down"
         >
-          <VolumeX className="w-5 h-5" />
-          <span className="text-[10px]">Vol-</span>
+          <VolumeX className="w-4 h-4" />
+          <span className="text-[9px]">Vol-</span>
         </button>
         <button
           onClick={() => handleKeyEvent(26)}
-          disabled={!streaming}
-          className="flex flex-col items-center gap-1 p-2 rounded-lg text-dark-400 hover:text-white hover:bg-dark-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+          disabled={!connected}
+          className="flex flex-col items-center gap-0.5 p-1.5 rounded-lg text-dark-400 hover:text-white hover:bg-dark-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
           title="Power"
         >
-          <Power className="w-5 h-5" />
-          <span className="text-[10px]">Power</span>
+          <Power className="w-4 h-4" />
+          <span className="text-[9px]">Power</span>
+        </button>
+        <button
+          onClick={() => handleKeyEvent(82)}
+          disabled={!connected}
+          className="flex flex-col items-center gap-0.5 p-1.5 rounded-lg text-dark-400 hover:text-white hover:bg-dark-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+          title="Menu"
+        >
+          <Menu className="w-4 h-4" />
+          <span className="text-[9px]">Menu</span>
         </button>
       </div>
+
+      {/* Swipe Gesture Buttons */}
+      <div className="flex items-center justify-center gap-3 py-2 border-t border-dark-700 bg-dark-850">
+        <span className="text-[10px] text-dark-500 mr-1">Swipe:</span>
+        <button
+          onClick={() => sendCommand({ type: 'swipe_gesture', direction: 'up' })}
+          disabled={!connected}
+          className="flex items-center gap-1 px-2 py-1 rounded text-dark-400 hover:text-white hover:bg-dark-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-[10px]"
+          title="Swipe Up"
+        >
+          <ChevronUp className="w-3 h-3" /> Up
+        </button>
+        <button
+          onClick={() => sendCommand({ type: 'swipe_gesture', direction: 'down' })}
+          disabled={!connected}
+          className="flex items-center gap-1 px-2 py-1 rounded text-dark-400 hover:text-white hover:bg-dark-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-[10px]"
+          title="Swipe Down (Notifications)"
+        >
+          <ChevronDown className="w-3 h-3" /> Down
+        </button>
+        <button
+          onClick={() => sendCommand({ type: 'swipe_gesture', direction: 'left' })}
+          disabled={!connected}
+          className="flex items-center gap-1 px-2 py-1 rounded text-dark-400 hover:text-white hover:bg-dark-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-[10px]"
+          title="Swipe Left"
+        >
+          <ChevronLeft className="w-3 h-3" /> Left
+        </button>
+        <button
+          onClick={() => sendCommand({ type: 'swipe_gesture', direction: 'right' })}
+          disabled={!connected}
+          className="flex items-center gap-1 px-2 py-1 rounded text-dark-400 hover:text-white hover:bg-dark-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-[10px]"
+          title="Swipe Right"
+        >
+          <ChevronRight className="w-3 h-3" /> Right
+        </button>
+      </div>
+
+      {/* Unlock Panel */}
+      {showUnlock && (
+        <div className="px-4 py-3 border-t border-dark-700 bg-dark-850">
+          <div className="flex items-center gap-2 mb-2">
+            <Lock className="w-4 h-4 text-green-400" />
+            <span className="text-sm font-medium text-white">Unlock Device</span>
+          </div>
+          <div className="flex gap-2">
+            <input
+              type="password"
+              value={pinInput}
+              onChange={(e) => setPinInput(e.target.value)}
+              placeholder="Enter PIN or password..."
+              className="flex-1 px-3 py-2 bg-dark-700 border border-dark-600 rounded-lg text-sm text-white placeholder-dark-500 focus:outline-none focus:border-green-500"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && pinInput.trim()) {
+                  sendCommand({ type: 'unlock_pin', pin: pinInput });
+                  setPinInput('');
+                }
+              }}
+            />
+            <button
+              onClick={() => {
+                if (pinInput.trim()) {
+                  sendCommand({ type: 'unlock_pin', pin: pinInput });
+                  setPinInput('');
+                }
+              }}
+              disabled={!pinInput.trim() || !connected}
+              className="px-4 py-2 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white text-sm rounded-lg transition-colors"
+            >
+              Unlock
+            </button>
+          </div>
+          <div className="flex gap-2 mt-2">
+            <button
+              onClick={() => sendCommand({ type: 'swipe_gesture', direction: 'up' })}
+              disabled={!connected}
+              className="flex-1 px-3 py-1.5 bg-dark-700 hover:bg-dark-600 text-dark-300 text-xs rounded-lg transition-colors disabled:opacity-50"
+            >
+              Swipe to Unlock
+            </button>
+            <button
+              onClick={() => sendCommand({ type: 'wake' })}
+              disabled={!connected}
+              className="flex-1 px-3 py-1.5 bg-dark-700 hover:bg-dark-600 text-dark-300 text-xs rounded-lg transition-colors disabled:opacity-50"
+            >
+              Wake + Swipe
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Keyboard Input */}
       {showKeyboard && (
@@ -405,7 +543,7 @@ export default function ScreenViewer({ deviceSerial, deviceResolution, isOnline 
             />
             <button
               onClick={handleSendText}
-              disabled={!textInput.trim() || !streaming}
+              disabled={!textInput.trim() || !connected}
               className="px-4 py-2 bg-primary-600 hover:bg-primary-700 disabled:opacity-50 text-white text-sm rounded-lg transition-colors"
             >
               Send
