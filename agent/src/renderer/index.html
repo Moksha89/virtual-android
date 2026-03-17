@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mobile Manager Agent</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app">
+    <!-- Setup Screen -->
+    <div id="setup-screen" class="screen hidden">
+      <div class="setup-container">
+        <div class="logo">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2">
+            <rect x="5" y="2" width="14" height="20" rx="2" ry="2"/>
+            <line x1="12" y1="18" x2="12.01" y2="18"/>
+          </svg>
+          <h1>Mobile Manager Agent</h1>
+          <p class="subtitle">Windows Gateway Setup</p>
+        </div>
+
+        <!-- Step 1: ADB -->
+        <div id="setup-step-adb" class="setup-step">
+          <h2>Step 1: ADB Driver</h2>
+          <div id="adb-status" class="status-box">
+            <span class="status-icon">⏳</span>
+            <span>Checking for ADB...</span>
+          </div>
+          <button id="btn-download-adb" class="btn btn-primary hidden" onclick="downloadAdb()">
+            Download ADB (Android Platform Tools)
+          </button>
+          <div id="download-progress" class="progress-container hidden">
+            <div class="progress-bar"><div id="progress-fill" class="progress-fill"></div></div>
+            <span id="progress-text">Downloading...</span>
+          </div>
+        </div>
+
+        <!-- Step 2: Server Config -->
+        <div id="setup-step-server" class="setup-step">
+          <h2>Step 2: Connect to Server</h2>
+          <div class="form-group">
+            <label for="server-url">Server URL</label>
+            <input type="text" id="server-url" placeholder="http://69.197.168.244" />
+          </div>
+          <div class="form-group">
+            <label for="agent-api-key">Agent API Key</label>
+            <input type="text" id="agent-api-key" placeholder="Enter your agent API key" />
+            <small>Get this from the web dashboard under Agents</small>
+          </div>
+          <div class="form-group">
+            <label for="agent-name">Agent Name</label>
+            <input type="text" id="agent-name" placeholder="My Home Gateway" />
+          </div>
+          <div class="form-group checkbox">
+            <input type="checkbox" id="auto-start" checked />
+            <label for="auto-start">Start automatically on Windows boot</label>
+          </div>
+          <button class="btn btn-primary" onclick="saveSetup()">Connect & Start</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Dashboard Screen -->
+    <div id="dashboard-screen" class="screen hidden">
+      <!-- Header -->
+      <header class="header">
+        <div class="header-left">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2">
+            <rect x="5" y="2" width="14" height="20" rx="2" ry="2"/>
+            <line x1="12" y1="18" x2="12.01" y2="18"/>
+          </svg>
+          <h1>Mobile Manager Agent</h1>
+        </div>
+        <div class="header-right">
+          <span id="connection-badge" class="badge badge-offline">Disconnected</span>
+          <button class="btn btn-small" onclick="openWebDashboard()">Open Web Dashboard</button>
+          <button class="btn btn-small btn-icon" onclick="showSettings()">⚙️</button>
+        </div>
+      </header>
+
+      <!-- Main Content -->
+      <div class="main-content">
+        <!-- Stats Row -->
+        <div class="stats-row">
+          <div class="stat-card">
+            <div class="stat-value" id="stat-devices">0</div>
+            <div class="stat-label">Devices Connected</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="stat-uptime">0s</div>
+            <div class="stat-label">Uptime</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="stat-heartbeat">Never</div>
+            <div class="stat-label">Last Heartbeat</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="stat-server">-</div>
+            <div class="stat-label">Server</div>
+          </div>
+        </div>
+
+        <!-- Tabs -->
+        <div class="tabs">
+          <button class="tab active" onclick="switchTab('devices')">Devices</button>
+          <button class="tab" onclick="switchTab('logs')">Activity Log</button>
+          <button class="tab" onclick="switchTab('settings')">Settings</button>
+        </div>
+
+        <!-- Devices Tab -->
+        <div id="tab-devices" class="tab-content active">
+          <div class="toolbar">
+            <h2>Connected Devices</h2>
+            <div class="toolbar-actions">
+              <button class="btn btn-small" onclick="refreshDevices()">🔄 Refresh</button>
+              <button class="btn btn-small" onclick="restartAdb()">🔧 Restart ADB</button>
+            </div>
+          </div>
+          <div id="devices-list" class="devices-grid">
+            <div class="empty-state">
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="1.5">
+                <rect x="5" y="2" width="14" height="20" rx="2" ry="2"/>
+                <line x1="12" y1="18" x2="12.01" y2="18"/>
+              </svg>
+              <p>No devices connected</p>
+              <small>Connect Android phones via USB to this PC</small>
+            </div>
+          </div>
+        </div>
+
+        <!-- Logs Tab -->
+        <div id="tab-logs" class="tab-content">
+          <div class="toolbar">
+            <h2>Activity Log</h2>
+            <button class="btn btn-small" onclick="clearLogs()">Clear</button>
+          </div>
+          <div id="logs-list" class="logs-list">
+            <div class="log-entry log-info">Agent started</div>
+          </div>
+        </div>
+
+        <!-- Settings Tab -->
+        <div id="tab-settings" class="tab-content">
+          <h2>Settings</h2>
+          <div class="settings-form">
+            <div class="form-group">
+              <label for="set-server-url">Server URL</label>
+              <input type="text" id="set-server-url" />
+            </div>
+            <div class="form-group">
+              <label for="set-api-key">Agent API Key</label>
+              <input type="text" id="set-api-key" />
+            </div>
+            <div class="form-group">
+              <label for="set-agent-name">Agent Name</label>
+              <input type="text" id="set-agent-name" />
+            </div>
+            <div class="form-group">
+              <label for="set-heartbeat">Heartbeat Interval (ms)</label>
+              <input type="number" id="set-heartbeat" min="5000" max="60000" step="1000" />
+            </div>
+            <div class="form-group checkbox">
+              <input type="checkbox" id="set-auto-start" />
+              <label for="set-auto-start">Start on Windows boot</label>
+            </div>
+            <div class="form-group checkbox">
+              <input type="checkbox" id="set-minimize-tray" />
+              <label for="set-minimize-tray">Minimize to system tray</label>
+            </div>
+            <div class="form-group">
+              <label for="set-adb-path">ADB Path</label>
+              <input type="text" id="set-adb-path" placeholder="Auto-detected" />
+            </div>
+            <button class="btn btn-primary" onclick="saveSettings()">Save Settings</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

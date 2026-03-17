@@ -2,24 +2,66 @@
   "name": "mobile-manager-agent",
   "version": "1.0.0",
   "description": "Mobile Manager - Windows Gateway Agent",
-  "main": "dist/index.js",
+  "main": "src/main/main.js",
+  "author": "Mobile Manager",
+  "license": "MIT",
   "scripts": {
-    "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
-    "build": "tsc",
-    "start": "node dist/index.js"
+    "start": "electron .",
+    "build": "electron-builder --win",
+    "build:dir": "electron-builder --win --dir"
   },
   "dependencies": {
-    "dotenv": "^16.4.5",
+    "auto-launch": "^5.0.6",
+    "electron-store": "^8.2.0",
     "node-fetch": "^2.7.0",
-    "uuid": "^10.0.0",
-    "ws": "^8.18.0"
+    "uuid": "^10.0.0"
   },
   "devDependencies": {
-    "@types/node": "^22.5.0",
-    "@types/node-fetch": "^2.6.11",
-    "@types/uuid": "^10.0.0",
-    "@types/ws": "^8.5.12",
-    "ts-node-dev": "^2.0.0",
-    "typescript": "^5.5.0"
+    "electron": "^28.3.3",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.mobilemanager.agent",
+    "productName": "Mobile Manager Agent",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**/*",
+      "assets/**/*",
+      "node_modules/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "platform-tools/",
+        "to": "platform-tools",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": true,
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Mobile Manager Agent"
+    }
   }
 }
