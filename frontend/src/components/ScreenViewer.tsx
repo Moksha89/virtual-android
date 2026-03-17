@@ -83,14 +83,20 @@ export default function ScreenViewer({ deviceSerial, deviceResolution, isOnline 
         const blob = new Blob([event.data], { type: 'image/png' });
         const url = URL.createObjectURL(blob);
 
-        // Revoke previous blob URL to prevent memory leak
-        if (blobUrlRef.current) {
-          URL.revokeObjectURL(blobUrlRef.current);
-        }
+        // Keep reference to old URL to revoke after new image loads
+        const oldUrl = blobUrlRef.current;
         blobUrlRef.current = url;
 
         if (imgRef.current) {
+          // Set onload handler to revoke old blob only after new image is decoded
+          imgRef.current.onload = () => {
+            if (oldUrl) {
+              URL.revokeObjectURL(oldUrl);
+            }
+          };
           imgRef.current.src = url;
+        } else if (oldUrl) {
+          URL.revokeObjectURL(oldUrl);
         }
         setStreaming(true);
       } else {
