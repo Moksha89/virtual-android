@@ -135,6 +135,51 @@ router.post('/heartbeat', authenticateAgent, async (req: Request, res: Response)
   }
 });
 
+// Agent version check endpoint (no auth required - agent checks before full setup)
+router.get('/check-update', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const currentVersion = req.query.version as string;
+    const platform = (req.query.platform as string) || 'win32';
+
+    // Latest version info - update this when releasing new agent versions
+    const latestVersion = process.env.AGENT_LATEST_VERSION || '1.1.0';
+    const downloadUrl = process.env.AGENT_DOWNLOAD_URL ||
+      `${req.protocol}://${req.get('host')}/downloads/Mobile%20Manager%20Agent%20Setup%20${latestVersion}.exe`;
+    const releaseNotes = process.env.AGENT_RELEASE_NOTES ||
+      'Auto-update support, live screen streaming, touch/swipe/keyboard control, performance improvements.';
+    const mandatory = process.env.AGENT_UPDATE_MANDATORY === 'true';
+
+    const hasUpdate = currentVersion ? latestVersion !== currentVersion &&
+      compareVersions(latestVersion, currentVersion) > 0 : false;
+
+    res.json({
+      current_version: currentVersion || 'unknown',
+      latest_version: latestVersion,
+      has_update: hasUpdate,
+      download_url: hasUpdate ? downloadUrl : null,
+      release_notes: hasUpdate ? releaseNotes : null,
+      mandatory: hasUpdate ? mandatory : false,
+      platform,
+    });
+  } catch (error) {
+    console.error('Check update error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Simple semver comparison: returns >0 if a > b, <0 if a < b, 0 if equal
+function compareVersions(a: string, b: string): number {
+  const pa = a.split('.').map(Number);
+  const pb = b.split('.').map(Number);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const na = pa[i] || 0;
+    const nb = pb[i] || 0;
+    if (na > nb) return 1;
+    if (na < nb) return -1;
+  }
+  return 0;
+}
+
 router.delete('/:id', authenticateToken, async (req: Request, res: Response): Promise<void> => {
   try {
     const result = await pool.query('DELETE FROM agents WHERE id = $1 RETURNING id', [req.params.id]);

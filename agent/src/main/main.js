@@ -6,6 +6,7 @@ const { AdbManager } = require('./adb-manager');
 const { ServerBridge } = require('./server-bridge');
 const { SetupManager } = require('./setup-manager');
 const { ScreenStreamer } = require('./screen-streamer');
+const { AutoUpdater, CURRENT_VERSION } = require('./auto-updater');
 
 // Single instance lock
 const gotLock = app.requestSingleInstanceLock();
@@ -32,6 +33,7 @@ let adbManager = null;
 let serverBridge = null;
 let setupManager = null;
 let screenStreamer = null;
+let autoUpdater = null;
 let isQuitting = false;
 
 function createWindow() {
@@ -270,6 +272,32 @@ function setupIPC() {
     if (serverUrl) shell.openExternal(serverUrl);
   });
 
+  // Auto-update
+  ipcMain.handle('get-version', () => CURRENT_VERSION);
+
+  ipcMain.handle('check-update', async () => {
+    if (!autoUpdater) return { error: 'Updater not initialized' };
+    await autoUpdater.checkForUpdate();
+    return autoUpdater.updateInfo || { has_update: false };
+  });
+
+  ipcMain.handle('download-update', async () => {
+    if (!autoUpdater) return { error: 'Updater not initialized' };
+    await autoUpdater.downloadAndInstall();
+    return { started: true };
+  });
+
+  ipcMain.handle('install-update', () => {
+    if (!autoUpdater) return { error: 'Updater not initialized' };
+    autoUpdater.installNow();
+    return { ok: true };
+  });
+
+  ipcMain.handle('open-update-download', () => {
+    if (autoUpdater) autoUpdater.openDownloadPage(shell);
+    return { ok: true };
+  });
+
   // Screen streaming
   ipcMain.handle('get-stream-status', () => {
     if (!screenStreamer) return { active: false, streams: [] };
@@ -347,6 +375,29 @@ function startBridge() {
 
   serverBridge.start();
 
+  // Initialize auto-updater
+  autoUpdater = new AutoUpdater(serverUrl);
+
+  autoUpdater.on('update-available', (info) => {
+    sendToRenderer('update-available', info);
+    // Also show in tray tooltip
+    if (tray) tray.setToolTip(`Mobile Manager Agent - Update available: v${info.latestVersion}`);
+  });
+
+  autoUpdater.on('download-progress', (progress) => {
+    sendToRenderer('update-download-progress', progress);
+  });
+
+  autoUpdater.on('download-complete', (info) => {
+    sendToRenderer('update-download-complete', info);
+  });
+
+  autoUpdater.on('update-error', (err) => {
+    sendToRenderer('update-error', err);
+  });
+
+  autoUpdater.start();
+
   // Initialize screen streamer
   screenStreamer = new ScreenStreamer(serverUrl, apiKey, adbManager);
 
@@ -401,6 +452,9 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   isQuitting = true;
+  if (autoUpdater) {
+    autoUpdater.stop();
+  }
   if (screenStreamer) {
     screenStreamer.stopAll();
   }

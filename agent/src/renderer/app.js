@@ -46,6 +46,32 @@ document.addEventListener('DOMContentLoaded', async () => {
     addLog('error', error.message);
   });
 
+  // Auto-update events
+  window.api.onUpdateAvailable((info) => {
+    showUpdateBanner(info);
+    addLog('info', `Update available: v${info.latestVersion} (current: v${info.currentVersion})`);
+  });
+
+  window.api.onUpdateDownloadProgress((progress) => {
+    showUpdateProgress(progress.percent);
+  });
+
+  window.api.onUpdateDownloadComplete((info) => {
+    showUpdateReady(info.version);
+    addLog('success', `Update v${info.version} downloaded and ready to install`);
+  });
+
+  window.api.onUpdateError((err) => {
+    hideUpdateProgress();
+    addLog('error', `Update error: ${err.message}`);
+  });
+
+  // Show current version in header
+  window.api.getVersion().then(v => {
+    const el = document.getElementById('app-version');
+    if (el) el.textContent = `v${v}`;
+  });
+
   // Update uptime every second
   setInterval(updateUptime, 1000);
 });
@@ -282,6 +308,11 @@ function loadSettingsForm() {
   document.getElementById('set-adb-path').value = config.adbPath || '';
   document.getElementById('stat-server').textContent = config.serverUrl ?
     new URL(config.serverUrl).host : '-';
+  // Show version in settings
+  window.api.getVersion().then(v => {
+    const el = document.getElementById('settings-version');
+    if (el) el.textContent = `v${v}`;
+  });
 }
 
 async function saveSettings() {
@@ -345,6 +376,93 @@ function updateUptime() {
     if (h > 0) el.textContent = `${h}h ${m}m`;
     else if (m > 0) el.textContent = `${m}m ${s}s`;
     else el.textContent = `${s}s`;
+  }
+}
+
+// Auto-update UI
+let pendingUpdateInfo = null;
+
+function showUpdateBanner(info) {
+  pendingUpdateInfo = info;
+  const banner = document.getElementById('update-banner');
+  const title = document.getElementById('update-title');
+  const subtitle = document.getElementById('update-subtitle');
+  const btnDownload = document.getElementById('btn-download-update');
+  const btnInstall = document.getElementById('btn-install-now');
+  const btnOpen = document.getElementById('btn-open-download');
+
+  title.textContent = `Update Available: v${info.latestVersion}`;
+  subtitle.textContent = info.releaseNotes || 'A new version is ready to download';
+  btnDownload.style.display = '';
+  btnInstall.style.display = 'none';
+  btnOpen.style.display = '';
+  banner.classList.remove('hidden');
+}
+
+function dismissUpdateBanner() {
+  document.getElementById('update-banner').classList.add('hidden');
+}
+
+async function downloadUpdate() {
+  const btnDownload = document.getElementById('btn-download-update');
+  btnDownload.textContent = 'Downloading...';
+  btnDownload.disabled = true;
+  showUpdateProgress(0);
+  addLog('info', 'Downloading update...');
+  try {
+    await window.api.downloadUpdate();
+  } catch (err) {
+    addLog('error', `Download failed: ${err.message}`);
+    btnDownload.textContent = 'Download & Install';
+    btnDownload.disabled = false;
+    hideUpdateProgress();
+  }
+}
+
+function showUpdateProgress(percent) {
+  const bar = document.getElementById('update-progress-bar');
+  const fill = document.getElementById('update-progress-fill');
+  const text = document.getElementById('update-progress-text');
+  bar.classList.remove('hidden');
+  fill.style.width = percent + '%';
+  text.textContent = `Downloading update... ${percent}%`;
+}
+
+function hideUpdateProgress() {
+  document.getElementById('update-progress-bar').classList.add('hidden');
+}
+
+function showUpdateReady(version) {
+  hideUpdateProgress();
+  const btnDownload = document.getElementById('btn-download-update');
+  const btnInstall = document.getElementById('btn-install-now');
+  btnDownload.style.display = 'none';
+  btnInstall.style.display = '';
+  document.getElementById('update-title').textContent = `Update Ready: v${version}`;
+  document.getElementById('update-subtitle').textContent = 'Download complete. Click to restart and install.';
+}
+
+async function installUpdateNow() {
+  if (!confirm('The agent will restart to install the update. Continue?')) return;
+  addLog('info', 'Installing update and restarting...');
+  await window.api.installUpdate();
+}
+
+function openUpdateDownload() {
+  window.api.openUpdateDownload();
+}
+
+async function manualCheckUpdate() {
+  addLog('info', 'Checking for updates...');
+  const result = await window.api.checkUpdate();
+  if (result && result.has_update) {
+    showUpdateBanner({
+      currentVersion: result.current_version,
+      latestVersion: result.latest_version,
+      releaseNotes: result.release_notes,
+    });
+  } else {
+    addLog('info', 'You are running the latest version');
   }
 }
 

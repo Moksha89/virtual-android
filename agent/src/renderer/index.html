@@ -63,6 +63,29 @@
 
     <!-- Dashboard Screen -->
     <div id="dashboard-screen" class="screen hidden">
+      <!-- Update Banner -->
+      <div id="update-banner" class="update-banner hidden">
+        <div class="update-banner-content">
+          <span class="update-icon">🔔</span>
+          <div class="update-info">
+            <strong id="update-title">Update Available</strong>
+            <span id="update-subtitle">A new version is ready to download</span>
+          </div>
+        </div>
+        <div class="update-actions">
+          <button class="btn btn-small btn-update" id="btn-download-update" onclick="downloadUpdate()">Download &amp; Install</button>
+          <button class="btn btn-small" id="btn-open-download" onclick="openUpdateDownload()" style="display:none">Open Download Page</button>
+          <button class="btn btn-small" id="btn-install-now" onclick="installUpdateNow()" style="display:none">Restart &amp; Install</button>
+          <button class="btn btn-icon" onclick="dismissUpdateBanner()" title="Dismiss">✕</button>
+        </div>
+      </div>
+
+      <!-- Update Download Progress -->
+      <div id="update-progress-bar" class="update-progress-bar hidden">
+        <div class="update-progress-fill" id="update-progress-fill"></div>
+        <span id="update-progress-text">Downloading update... 0%</span>
+      </div>
+
       <!-- Header -->
       <header class="header">
         <div class="header-left">
@@ -71,6 +94,7 @@
             <line x1="12" y1="18" x2="12.01" y2="18"/>
           </svg>
           <h1>Mobile Manager Agent</h1>
+          <span id="app-version" class="version-label">v1.0.0</span>
         </div>
         <div class="header-right">
           <span id="connection-badge" class="badge badge-offline">Disconnected</span>
@@ -173,6 +197,12 @@
               <input type="text" id="set-adb-path" placeholder="Auto-detected" />
             </div>
             <button class="btn btn-primary" onclick="saveSettings()">Save Settings</button>
+            <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border);">
+              <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
+                <span style="font-size:13px; color:var(--text-secondary);">Agent Version: <strong id="settings-version">-</strong></span>
+                <button class="btn btn-small" onclick="manualCheckUpdate()">Check for Updates</button>
+              </div>
+            </div>
           </div>
         </div>
       </div>

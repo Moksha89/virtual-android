@@ -19,6 +19,13 @@ contextBridge.exposeInMainWorld('api', {
   getStatus: () => ipcRenderer.invoke('get-status'),
   openWebDashboard: () => ipcRenderer.invoke('open-web-dashboard'),
 
+  // Auto-update
+  getVersion: () => ipcRenderer.invoke('get-version'),
+  checkUpdate: () => ipcRenderer.invoke('check-update'),
+  downloadUpdate: () => ipcRenderer.invoke('download-update'),
+  installUpdate: () => ipcRenderer.invoke('install-update'),
+  openUpdateDownload: () => ipcRenderer.invoke('open-update-download'),
+
   // Screen streaming
   getStreamStatus: () => ipcRenderer.invoke('get-stream-status'),
 
@@ -40,5 +47,17 @@ contextBridge.exposeInMainWorld('api', {
   },
   onStreamStatus: (callback) => {
     ipcRenderer.on('stream-status', (_, data) => callback(data));
+  },
+  onUpdateAvailable: (callback) => {
+    ipcRenderer.on('update-available', (_, data) => callback(data));
+  },
+  onUpdateDownloadProgress: (callback) => {
+    ipcRenderer.on('update-download-progress', (_, data) => callback(data));
+  },
+  onUpdateDownloadComplete: (callback) => {
+    ipcRenderer.on('update-download-complete', (_, data) => callback(data));
+  },
+  onUpdateError: (callback) => {
+    ipcRenderer.on('update-error', (_, data) => callback(data));
   },
 });
