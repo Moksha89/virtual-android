@@ -21,6 +21,10 @@ const screenSessions = new Map<string, {
   browsers: Set<ScreenSocket>;
 }>();
 
+// Track frame relay stats
+let frameRelayCount = 0;
+let lastFrameLogTime = Date.now();
+
 export function setupScreenRelay(server: HttpServer): WebSocketServer {
   const wss = new WebSocketServer({ noServer: true });
 
@@ -58,9 +62,22 @@ export function setupScreenRelay(server: HttpServer): WebSocketServer {
         screenSessions.set(serial, { agent: null, browsers: new Set() });
       }
       const session = screenSessions.get(serial)!;
+
+      // Close previous agent connection if exists
+      if (session.agent && session.agent.readyState === WebSocket.OPEN) {
+        console.log(`Closing previous agent connection for device: ${serial}`);
+        session.agent.close(4002, 'Replaced by new agent connection');
+      }
       session.agent = ws;
 
       console.log(`Screen agent connected for device: ${serial}`);
+
+      // Notify all browsers that agent is connected
+      session.browsers.forEach((browser) => {
+        if (browser.readyState === WebSocket.OPEN) {
+          browser.send(JSON.stringify({ type: 'agent_connected' }));
+        }
+      });
 
       // Notify agent if browsers are already waiting
       if (session.browsers.size > 0) {
@@ -85,6 +102,16 @@ export function setupScreenRelay(server: HttpServer): WebSocketServer {
         screenSessions.set(serial, { agent: null, browsers: new Set() });
       }
       const session = screenSessions.get(serial)!;
+
+      // Clean up dead browser connections before adding new one
+      const deadBrowsers: ScreenSocket[] = [];
+      session.browsers.forEach((browser) => {
+        if (browser.readyState !== WebSocket.OPEN && browser.readyState !== WebSocket.CONNECTING) {
+          deadBrowsers.push(browser);
+        }
+      });
+      deadBrowsers.forEach((b) => session.browsers.delete(b));
+
       session.browsers.add(ws);
 
       console.log(`Screen browser connected for device: ${serial}, total browsers: ${session.browsers.size}`);
@@ -112,9 +139,21 @@ export function setupScreenRelay(server: HttpServer): WebSocketServer {
       if (!session) return;
 
       if (ws.role === 'agent') {
-        // Agent sending frame data (binary JPEG) or JSON messages
+        // Agent sending frame data (binary PNG) or JSON messages
         if (isBinary) {
-          // Binary frame data - relay to all browsers
+          // Binary frame data - relay to all open browsers
+          const frameSize = (data as Buffer).length;
+          frameRelayCount++;
+
+          // Log frame stats every 10 seconds
+          const now = Date.now();
+          if (now - lastFrameLogTime > 10000) {
+            const activeBrowsers = Array.from(session.browsers).filter(b => b.readyState === WebSocket.OPEN).length;
+            console.log(`Frame relay stats: ${frameRelayCount} frames relayed, ${frameSize} bytes last frame, ${activeBrowsers} active browsers for ${ws.deviceSerial}`);
+            frameRelayCount = 0;
+            lastFrameLogTime = now;
+          }
+
           session.browsers.forEach((browser) => {
             if (browser.readyState === WebSocket.OPEN) {
               browser.send(data, { binary: true });
@@ -132,7 +171,11 @@ export function setupScreenRelay(server: HttpServer): WebSocketServer {
       } else if (ws.role === 'browser') {
         // Browser sending input commands - relay to agent
         if (session.agent && session.agent.readyState === WebSocket.OPEN) {
-          session.agent.send(data.toString());
+          const cmdStr = data.toString();
+          console.log(`Relaying browser command to agent for ${ws.deviceSerial}: ${cmdStr}`);
+          session.agent.send(cmdStr);
+        } else {
+          console.log(`Cannot relay command - no agent connected for ${ws.deviceSerial}`);
         }
       }
     });

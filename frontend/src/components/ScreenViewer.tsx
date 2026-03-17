@@ -34,18 +34,39 @@ export default function ScreenViewer({ deviceSerial, deviceResolution, isOnline 
   const frameCountRef = useRef(0);
   const fpsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const blobUrlRef = useRef<string | null>(null);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mountedRef = useRef(true);
 
   // Parse device resolution
   const [devWidth, devHeight] = (deviceResolution || '1080x1920').split('x').map(Number);
 
   const connectWebSocket = useCallback(() => {
-    if (!isOnline || !deviceSerial) return;
+    if (!isOnline || !deviceSerial || !mountedRef.current) return;
+
+    // Close existing connection before creating new one
+    if (wsRef.current) {
+      const oldWs = wsRef.current;
+      wsRef.current = null;
+      oldWs.onclose = null; // Prevent reconnect from old socket
+      oldWs.onerror = null;
+      oldWs.onmessage = null;
+      if (oldWs.readyState === WebSocket.OPEN || oldWs.readyState === WebSocket.CONNECTING) {
+        oldWs.close();
+      }
+    }
+
+    // Clear any pending reconnect timer
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
 
     const token = localStorage.getItem('token');
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsHost = window.location.host;
     const wsUrl = `${wsProtocol}//${wsHost}/ws/screen?role=browser&serial=${encodeURIComponent(deviceSerial)}&token=${encodeURIComponent(token || '')}`;
 
+    console.log('Screen WebSocket connecting...');
     const ws = new WebSocket(wsUrl);
     ws.binaryType = 'arraybuffer';
     wsRef.current = ws;
@@ -57,7 +78,7 @@ export default function ScreenViewer({ deviceSerial, deviceResolution, isOnline 
 
     ws.onmessage = (event) => {
       if (event.data instanceof ArrayBuffer) {
-        // Binary JPEG frame
+        // Binary PNG frame
         frameCountRef.current++;
         const blob = new Blob([event.data], { type: 'image/png' });
         const url = URL.createObjectURL(blob);
@@ -71,11 +92,11 @@ export default function ScreenViewer({ deviceSerial, deviceResolution, isOnline 
         if (imgRef.current) {
           imgRef.current.src = url;
         }
-        if (!streaming) setStreaming(true);
+        setStreaming(true);
       } else {
         // JSON message
         try {
-          const msg = JSON.parse(event.data);
+          const msg = JSON.parse(event.data as string);
           if (msg.type === 'agent_connected') {
             setConnected(true);
           } else if (msg.type === 'agent_disconnected') {
@@ -91,19 +112,22 @@ export default function ScreenViewer({ deviceSerial, deviceResolution, isOnline 
       console.log('Screen WebSocket closed');
       setConnected(false);
       setStreaming(false);
-      // Reconnect after delay
-      if (isOnline) {
-        setTimeout(connectWebSocket, 3000);
+      // Only reconnect if this is still the active WebSocket and component is mounted
+      if (wsRef.current === ws && mountedRef.current && isOnline) {
+        wsRef.current = null;
+        reconnectTimerRef.current = setTimeout(connectWebSocket, 3000);
       }
     };
 
-    ws.onerror = () => {
+    ws.onerror = (err) => {
+      console.error('Screen WebSocket error', err);
       // Will trigger onclose
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deviceSerial, isOnline]);
 
   useEffect(() => {
+    mountedRef.current = true;
     connectWebSocket();
 
     // FPS counter
@@ -113,9 +137,16 @@ export default function ScreenViewer({ deviceSerial, deviceResolution, isOnline 
     }, 1000);
 
     return () => {
+      mountedRef.current = false;
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
       if (wsRef.current) {
-        wsRef.current.close();
+        const ws = wsRef.current;
         wsRef.current = null;
+        ws.onclose = null; // Prevent reconnect on cleanup
+        ws.close();
       }
       if (fpsIntervalRef.current) {
         clearInterval(fpsIntervalRef.current);

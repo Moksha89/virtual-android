@@ -27,11 +27,19 @@ class ScreenStreamer extends EventEmitter {
       interval: null,
       streaming: false,
       capturing: false,
+      pingInterval: null,
+      framesSent: 0,
     };
 
     ws.on('open', () => {
       console.log(`Screen WebSocket connected for ${serial}`);
       this.emit('stream_connected', { serial });
+      // Send a ping to keep the connection alive
+      streamState.pingInterval = setInterval(() => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.ping();
+        }
+      }, 20000);
     });
 
     ws.on('message', async (data) => {
@@ -54,18 +62,22 @@ class ScreenStreamer extends EventEmitter {
             break;
 
           case 'tap':
+            console.log(`Executing tap at ${msg.x},${msg.y} on ${serial}`);
             await this.adbManager.tap(serial, msg.x, msg.y);
             break;
 
           case 'swipe':
+            console.log(`Executing swipe on ${serial}`);
             await this.adbManager.swipe(serial, msg.x1, msg.y1, msg.x2, msg.y2, msg.duration || 300);
             break;
 
           case 'keyevent':
+            console.log(`Executing keyevent ${msg.keycode} on ${serial}`);
             await this.adbManager.keyevent(serial, msg.keycode);
             break;
 
           case 'text':
+            console.log(`Executing text input on ${serial}`);
             await this.adbManager.inputText(serial, msg.text);
             break;
 
@@ -77,8 +89,12 @@ class ScreenStreamer extends EventEmitter {
       }
     });
 
-    ws.on('close', () => {
-      console.log(`Screen WebSocket closed for ${serial}`);
+    ws.on('close', (code, reason) => {
+      console.log(`Screen WebSocket closed for ${serial} (code: ${code}, reason: ${reason || 'none'})`);
+      if (streamState.pingInterval) {
+        clearInterval(streamState.pingInterval);
+        streamState.pingInterval = null;
+      }
       this.stopCapturing(streamState);
       this.activeStreams.delete(serial);
       this.emit('stream_disconnected', { serial });
@@ -111,16 +127,24 @@ class ScreenStreamer extends EventEmitter {
       streamState.capturing = true;
       try {
         const pngBuffer = await this.adbManager.screencapRaw(serial);
-        if (!pngBuffer || pngBuffer.length === 0) return;
+        if (!pngBuffer || pngBuffer.length === 0) {
+          return;
+        }
 
         // Send PNG frames directly (no sharp dependency needed)
         if (streamState.ws.readyState === WebSocket.OPEN) {
           streamState.ws.send(pngBuffer, { binary: true });
+          streamState.framesSent++;
+          if (streamState.framesSent % 25 === 1) {
+            console.log(`[${serial}] Frame #${streamState.framesSent} sent, size: ${(pngBuffer.length / 1024).toFixed(0)}KB`);
+          }
         }
       } catch (err) {
-        // Silently handle capture errors (device might be temporarily busy)
+        // Only log non-transient errors
         if (!err.message.includes('device not found') && !err.message.includes('no devices')) {
-          // Only log non-transient errors occasionally
+          if (streamState.framesSent === 0) {
+            console.error(`[${serial}] Screencap error: ${err.message}`);
+          }
         }
       } finally {
         streamState.capturing = false;
@@ -132,6 +156,10 @@ class ScreenStreamer extends EventEmitter {
     if (streamState.interval) {
       clearInterval(streamState.interval);
       streamState.interval = null;
+    }
+    if (streamState.pingInterval) {
+      clearInterval(streamState.pingInterval);
+      streamState.pingInterval = null;
     }
     streamState.streaming = false;
   }
