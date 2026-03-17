@@ -29,23 +29,63 @@ const screenSessions = new Map<string, {
 let frameRelayCount = 0;
 let lastFrameLogTime = Date.now();
 
-// Frame compression settings
-const JPEG_QUALITY = 40; // Low quality = small size = fast transfer
-const SCALE_FACTOR = 0.5; // Scale down to 50% resolution
+// Frame compression settings - optimized for SPEED over size
+const JPEG_QUALITY = 35;
+const SCALE_WIDTH = 540; // Fixed width for speed (no metadata lookup needed)
 
 async function compressFrame(pngBuffer: Buffer): Promise<Buffer> {
   try {
-    const metadata = await sharp(pngBuffer).metadata();
-    const width = metadata.width || 1080;
-    const targetWidth = Math.round(width * SCALE_FACTOR);
-    return await sharp(pngBuffer)
-      .resize(targetWidth)
-      .jpeg({ quality: JPEG_QUALITY, mozjpeg: true })
+    return await sharp(pngBuffer, { failOn: 'none' })
+      .resize(SCALE_WIDTH) // Fixed width, auto height
+      .jpeg({ quality: JPEG_QUALITY }) // Default libjpeg (much faster than mozjpeg)
       .toBuffer();
   } catch {
-    // If compression fails, return original
     return pngBuffer;
   }
+}
+
+// Per-device latest frame buffer + compression state
+// This ensures we only compress the LATEST frame, dropping stale ones
+const latestFrameBuffer = new Map<string, Buffer>();
+const compressionActive = new Map<string, boolean>();
+
+function processLatestFrame(serial: string, session: { agent: ScreenSocket | null; browsers: Map<string, ScreenSocket> }) {
+  if (compressionActive.get(serial)) return; // Already processing
+  const rawFrame = latestFrameBuffer.get(serial);
+  if (!rawFrame) return; // No frame to process
+
+  latestFrameBuffer.delete(serial); // Clear so we know if new frame arrived during compression
+  compressionActive.set(serial, true);
+
+  const originalSize = rawFrame.length;
+  compressFrame(rawFrame).then((compressed) => {
+    compressionActive.set(serial, false);
+
+    // Log stats
+    frameRelayCount++;
+    const now = Date.now();
+    if (now - lastFrameLogTime > 10000) {
+      const activeBrowsers = Array.from(session.browsers.values()).filter(b => b.readyState === WebSocket.OPEN).length;
+      const ratio = ((1 - compressed.length / originalSize) * 100).toFixed(0);
+      console.log(`Frame relay: ${frameRelayCount} frames, ${(originalSize / 1024).toFixed(0)}KB->${(compressed.length / 1024).toFixed(0)}KB (${ratio}% smaller), ${activeBrowsers} browsers for ${serial}`);
+      frameRelayCount = 0;
+      lastFrameLogTime = now;
+    }
+
+    // Send to all browsers
+    session.browsers.forEach((browser) => {
+      if (browser.readyState === WebSocket.OPEN) {
+        browser.send(compressed, { binary: true });
+      }
+    });
+
+    // Process next frame if one arrived during compression
+    if (latestFrameBuffer.has(serial)) {
+      processLatestFrame(serial, session);
+    }
+  }).catch(() => {
+    compressionActive.set(serial, false);
+  });
 }
 
 export function setupScreenRelay(server: HttpServer): WebSocketServer {
@@ -209,28 +249,9 @@ export function setupScreenRelay(server: HttpServer): WebSocketServer {
       if (ws.role === 'agent') {
         // Agent sending frame data (binary PNG) or JSON messages
         if (isBinary) {
-          // Binary frame data - compress PNG to JPEG and relay to all open browsers
-          const originalSize = (data as Buffer).length;
-          frameRelayCount++;
-
-          // Compress frame in background, then send
-          compressFrame(data as Buffer).then((compressed) => {
-            // Log frame stats every 10 seconds
-            const now = Date.now();
-            if (now - lastFrameLogTime > 10000) {
-              const activeBrowsers = Array.from(session.browsers.values()).filter(b => b.readyState === WebSocket.OPEN).length;
-              const ratio = ((1 - compressed.length / originalSize) * 100).toFixed(0);
-              console.log(`Frame relay: ${frameRelayCount} frames, ${(originalSize / 1024).toFixed(0)}KB→${(compressed.length / 1024).toFixed(0)}KB (${ratio}% smaller), ${activeBrowsers} browsers for ${ws.deviceSerial}`);
-              frameRelayCount = 0;
-              lastFrameLogTime = now;
-            }
-
-            session.browsers.forEach((browser) => {
-              if (browser.readyState === WebSocket.OPEN) {
-                browser.send(compressed, { binary: true });
-              }
-            });
-          });
+          // Store latest frame and trigger processing (drops stale frames)
+          latestFrameBuffer.set(ws.deviceSerial!, data as Buffer);
+          processLatestFrame(ws.deviceSerial!, session);
         } else {
           // JSON message from agent (e.g., status updates)
           const msgStr = data.toString();

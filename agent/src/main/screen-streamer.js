@@ -146,7 +146,10 @@ class ScreenStreamer extends EventEmitter {
     if (streamState.looping) return;
     streamState.looping = true;
 
-    // Continuous capture loop - no idle gaps between frames
+    // Max bytes allowed in WebSocket send buffer before we skip a frame
+    // This prevents frames from queuing up when upload is slower than capture
+    const MAX_BUFFER = 512 * 1024; // 512KB - if buffer exceeds this, skip capture
+
     const captureLoop = async () => {
       while (streamState.streaming && streamState.looping) {
         if (streamState.ws.readyState !== WebSocket.OPEN) {
@@ -154,13 +157,28 @@ class ScreenStreamer extends EventEmitter {
           continue;
         }
 
+        // BACKPRESSURE: Skip capture if previous frame(s) haven't finished uploading
+        if (streamState.ws.bufferedAmount > MAX_BUFFER) {
+          streamState.framesSkipped = (streamState.framesSkipped || 0) + 1;
+          await new Promise(r => setTimeout(r, 50)); // Brief wait before checking again
+          continue;
+        }
+
         try {
           const frameBuffer = await this.adbManager.screencapOptimized(serial);
           if (frameBuffer && frameBuffer.length > 0 && streamState.ws.readyState === WebSocket.OPEN) {
+            // Double-check buffer after capture (capture takes ~300ms)
+            if (streamState.ws.bufferedAmount > MAX_BUFFER) {
+              streamState.framesSkipped = (streamState.framesSkipped || 0) + 1;
+              continue;
+            }
             streamState.ws.send(frameBuffer, { binary: true });
             streamState.framesSent++;
-            if (streamState.framesSent % 100 === 1) {
-              console.log(`[${serial}] Frame #${streamState.framesSent} sent, size: ${(frameBuffer.length / 1024).toFixed(0)}KB`);
+            if (streamState.framesSent % 50 === 1) {
+              const skipped = streamState.framesSkipped || 0;
+              const bufKB = (streamState.ws.bufferedAmount / 1024).toFixed(0);
+              console.log(`[${serial}] Frame #${streamState.framesSent} sent, size: ${(frameBuffer.length / 1024).toFixed(0)}KB, buffer: ${bufKB}KB, skipped: ${skipped}`);
+              streamState.framesSkipped = 0;
             }
           }
         } catch (err) {
@@ -169,7 +187,6 @@ class ScreenStreamer extends EventEmitter {
               console.error(`[${serial}] Screencap error: ${err.message}`);
             }
           }
-          // Brief pause on error before retrying
           await new Promise(r => setTimeout(r, 200));
         }
       }
