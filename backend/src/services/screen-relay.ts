@@ -1,7 +1,6 @@
 import { Server as HttpServer } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import jwt from 'jsonwebtoken';
-import sharp from 'sharp';
 import pool from '../config/database';
 import { JwtPayload } from '../types';
 
@@ -19,80 +18,21 @@ interface ScreenSocket extends WebSocket {
   tabId?: string;
 }
 
-// Map: deviceSerial -> { agent: ScreenSocket, browsers: Map<tabId, ScreenSocket> }
+// Map: deviceSerial -> { agent, browsers, codec }
 const screenSessions = new Map<string, {
   agent: ScreenSocket | null;
   browsers: Map<string, ScreenSocket>;
+  codec: string;
 }>();
 
 // Track frame relay stats
 let frameRelayCount = 0;
 let lastFrameLogTime = Date.now();
+let totalBytesRelayed = 0;
 
-// Frame compression settings - optimized for SPEED over size
-const JPEG_QUALITY = 35;
-const SCALE_WIDTH = 540; // Fixed width for speed (no metadata lookup needed)
-
-async function compressFrame(pngBuffer: Buffer): Promise<Buffer> {
-  try {
-    return await sharp(pngBuffer, { failOn: 'none' })
-      .resize(SCALE_WIDTH) // Fixed width, auto height
-      .jpeg({ quality: JPEG_QUALITY }) // Default libjpeg (much faster than mozjpeg)
-      .toBuffer();
-  } catch {
-    return pngBuffer;
-  }
-}
-
-// Per-device latest frame buffer + compression state
-// This ensures we only compress the LATEST frame, dropping stale ones
-const latestFrameBuffer = new Map<string, Buffer>();
-const compressionActive = new Map<string, boolean>();
-
-// Cache last compressed frame per device for instant initial load
-const lastCompressedFrame = new Map<string, Buffer>();
-
-function processLatestFrame(serial: string, session: { agent: ScreenSocket | null; browsers: Map<string, ScreenSocket> }) {
-  if (compressionActive.get(serial)) return; // Already processing
-  const rawFrame = latestFrameBuffer.get(serial);
-  if (!rawFrame) return; // No frame to process
-
-  latestFrameBuffer.delete(serial); // Clear so we know if new frame arrived during compression
-  compressionActive.set(serial, true);
-
-  const originalSize = rawFrame.length;
-  compressFrame(rawFrame).then((compressed) => {
-    compressionActive.set(serial, false);
-
-    // Log stats
-    frameRelayCount++;
-    const now = Date.now();
-    if (now - lastFrameLogTime > 10000) {
-      const activeBrowsers = Array.from(session.browsers.values()).filter(b => b.readyState === WebSocket.OPEN).length;
-      const ratio = ((1 - compressed.length / originalSize) * 100).toFixed(0);
-      console.log(`Frame relay: ${frameRelayCount} frames, ${(originalSize / 1024).toFixed(0)}KB->${(compressed.length / 1024).toFixed(0)}KB (${ratio}% smaller), ${activeBrowsers} browsers for ${serial}`);
-      frameRelayCount = 0;
-      lastFrameLogTime = now;
-    }
-
-    // Cache this frame for instant delivery to new browser connections
-    lastCompressedFrame.set(serial, compressed);
-
-    // Send to all browsers
-    session.browsers.forEach((browser) => {
-      if (browser.readyState === WebSocket.OPEN) {
-        browser.send(compressed, { binary: true });
-      }
-    });
-
-    // Process next frame if one arrived during compression
-    if (latestFrameBuffer.has(serial)) {
-      processLatestFrame(serial, session);
-    }
-  }).catch(() => {
-    compressionActive.set(serial, false);
-  });
-}
+// Cache last frame per device for instant initial load (screencap mode only)
+const lastCachedFrame = new Map<string, Buffer>();
+const deviceCodec = new Map<string, string>();
 
 export function setupScreenRelay(server: HttpServer): WebSocketServer {
   const wss = new WebSocketServer({ noServer: true });
@@ -128,7 +68,7 @@ export function setupScreenRelay(server: HttpServer): WebSocketServer {
 
       // Register agent for this device
       if (!screenSessions.has(serial)) {
-        screenSessions.set(serial, { agent: null, browsers: new Map() });
+        screenSessions.set(serial, { agent: null, browsers: new Map(), codec: 'unknown' });
       }
       const session = screenSessions.get(serial)!;
 
@@ -166,7 +106,7 @@ export function setupScreenRelay(server: HttpServer): WebSocketServer {
 
       // Register browser for this device
       if (!screenSessions.has(serial)) {
-        screenSessions.set(serial, { agent: null, browsers: new Map() });
+        screenSessions.set(serial, { agent: null, browsers: new Map(), codec: 'unknown' });
       }
       const session = screenSessions.get(serial)!;
 
@@ -229,12 +169,21 @@ export function setupScreenRelay(server: HttpServer): WebSocketServer {
 
       // Tell agent to start streaming if connected
       if (session.agent && session.agent.readyState === WebSocket.OPEN) {
-        // Send cached frame immediately for instant first paint
-        const cached = lastCompressedFrame.get(serial);
-        if (cached) {
-          ws.send(cached, { binary: true });
-          console.log(`Sent cached frame (${(cached.length / 1024).toFixed(0)}KB) to new browser for ${serial}`);
+        // Tell browser which codec to expect
+        const codec = deviceCodec.get(serial) || 'unknown';
+        if (codec !== 'unknown') {
+          ws.send(JSON.stringify({ type: 'codec', codec }));
         }
+
+        // Send cached frame for instant first paint (screencap mode only)
+        if (codec === 'screencap' || codec === 'unknown') {
+          const cached = lastCachedFrame.get(serial);
+          if (cached) {
+            ws.send(cached, { binary: true });
+            console.log(`Sent cached frame (${(cached.length / 1024).toFixed(0)}KB) to new browser for ${serial}`);
+          }
+        }
+
         session.agent.send(JSON.stringify({ type: 'start_streaming' }));
         ws.send(JSON.stringify({ type: 'agent_connected' }));
       } else {
@@ -256,14 +205,51 @@ export function setupScreenRelay(server: HttpServer): WebSocketServer {
       if (!session) return;
 
       if (ws.role === 'agent') {
-        // Agent sending frame data (binary PNG) or JSON messages
         if (isBinary) {
-          // Store latest frame and trigger processing (drops stale frames)
-          latestFrameBuffer.set(ws.deviceSerial!, data as Buffer);
-          processLatestFrame(ws.deviceSerial!, session);
+          // Binary data from agent - H.264 chunks or PNG screencap frames
+          // DIRECT PASS-THROUGH: No compression, no processing, just relay
+          const frameData = data as Buffer;
+          const codec = deviceCodec.get(ws.deviceSerial!) || 'unknown';
+
+          // Cache frame for instant delivery to new browsers (screencap mode only)
+          if (codec !== 'h264') {
+            lastCachedFrame.set(ws.deviceSerial!, frameData);
+          }
+
+          // Track stats
+          frameRelayCount++;
+          totalBytesRelayed += frameData.length;
+          const now = Date.now();
+          if (now - lastFrameLogTime > 10000) {
+            const activeBrowsers = Array.from(session.browsers.values()).filter(b => b.readyState === WebSocket.OPEN).length;
+            console.log(`Frame relay [${codec}]: ${frameRelayCount} chunks in 10s, ${(totalBytesRelayed / 1024).toFixed(0)}KB total, ${activeBrowsers} browsers for ${ws.deviceSerial}`);
+            frameRelayCount = 0;
+            totalBytesRelayed = 0;
+            lastFrameLogTime = now;
+          }
+
+          // Relay directly to all browsers - ZERO processing overhead
+          session.browsers.forEach((browser) => {
+            if (browser.readyState === WebSocket.OPEN) {
+              browser.send(frameData, { binary: true });
+            }
+          });
         } else {
-          // JSON message from agent (e.g., status updates)
+          // JSON message from agent
           const msgStr = data.toString();
+
+          // Check if this is a codec notification
+          try {
+            const msg = JSON.parse(msgStr);
+            if (msg.type === 'codec') {
+              deviceCodec.set(ws.deviceSerial!, msg.codec);
+              session.codec = msg.codec;
+              console.log(`Device ${ws.deviceSerial} codec set to: ${msg.codec}`);
+            }
+          } catch {
+            // Not JSON or parse error
+          }
+
           session.browsers.forEach((browser) => {
             if (browser.readyState === WebSocket.OPEN) {
               browser.send(msgStr);

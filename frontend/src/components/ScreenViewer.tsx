@@ -39,14 +39,19 @@ export default function ScreenViewer({ deviceSerial, deviceResolution, isOnline 
   const [textInput, setTextInput] = useState('');
   const [pinInput, setPinInput] = useState('');
   const [swipeStart, setSwipeStart] = useState<{ x: number; y: number } | null>(null);
+  const [codecMode, setCodecMode] = useState<'unknown' | 'h264' | 'screencap'>('unknown');
   const wsRef = useRef<WebSocket | null>(null);
   const imgRef = useRef<HTMLImageElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const frameCountRef = useRef(0);
   const fpsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const blobUrlRef = useRef<string | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mountedRef = useRef(true);
+  const decoderRef = useRef<VideoDecoder | null>(null);
+  const h264BufferRef = useRef<Uint8Array[]>([]);
+  const codecModeRef = useRef<'unknown' | 'h264' | 'screencap'>('unknown');
   // Stable tab identifier - survives reconnects within same tab
   const tabIdRef = useRef(Math.random().toString(36).substring(2) + Date.now().toString(36));
 
@@ -91,25 +96,27 @@ export default function ScreenViewer({ deviceSerial, deviceResolution, isOnline 
 
     ws.onmessage = (event) => {
       if (event.data instanceof ArrayBuffer) {
-        // Binary frame (JPEG from server compression)
-        frameCountRef.current++;
-        const blob = new Blob([event.data], { type: 'image/jpeg' });
-        const url = URL.createObjectURL(blob);
+        const data = new Uint8Array(event.data);
 
-        // Keep reference to old URL to revoke after new image loads
-        const oldUrl = blobUrlRef.current;
-        blobUrlRef.current = url;
+        if (codecModeRef.current === 'h264') {
+          // H.264 mode: decode with WebCodecs VideoDecoder
+          handleH264Chunk(data);
+        } else {
+          // Screencap fallback mode: display as image (PNG from agent)
+          frameCountRef.current++;
+          const blob = new Blob([event.data], { type: 'image/png' });
+          const url = URL.createObjectURL(blob);
+          const oldUrl = blobUrlRef.current;
+          blobUrlRef.current = url;
 
-        if (imgRef.current) {
-          // Set onload handler to revoke old blob only after new image is decoded
-          imgRef.current.onload = () => {
-            if (oldUrl) {
-              URL.revokeObjectURL(oldUrl);
-            }
-          };
-          imgRef.current.src = url;
-        } else if (oldUrl) {
-          URL.revokeObjectURL(oldUrl);
+          if (imgRef.current) {
+            imgRef.current.onload = () => {
+              if (oldUrl) URL.revokeObjectURL(oldUrl);
+            };
+            imgRef.current.src = url;
+          } else if (oldUrl) {
+            URL.revokeObjectURL(oldUrl);
+          }
         }
         setStreaming(true);
       } else {
@@ -120,6 +127,13 @@ export default function ScreenViewer({ deviceSerial, deviceResolution, isOnline 
             setConnected(true);
           } else if (msg.type === 'agent_disconnected') {
             setStreaming(false);
+          } else if (msg.type === 'codec') {
+            console.log('Codec mode:', msg.codec);
+            codecModeRef.current = msg.codec;
+            setCodecMode(msg.codec);
+            if (msg.codec === 'h264') {
+              initH264Decoder();
+            }
           }
         } catch {
           // ignore parse errors
@@ -151,6 +165,95 @@ export default function ScreenViewer({ deviceSerial, deviceResolution, isOnline 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deviceSerial, isOnline]);
 
+  // H.264 WebCodecs decoder initialization
+  const initH264Decoder = useCallback(() => {
+    if (decoderRef.current) {
+      try { decoderRef.current.close(); } catch {}
+    }
+    if (typeof VideoDecoder === 'undefined') {
+      console.warn('WebCodecs VideoDecoder not available, falling back to screencap');
+      codecModeRef.current = 'screencap';
+      setCodecMode('screencap');
+      return;
+    }
+    const decoder = new VideoDecoder({
+      output: (frame: VideoFrame) => {
+        frameCountRef.current++;
+        const canvas = canvasRef.current;
+        if (canvas) {
+          canvas.width = frame.displayWidth;
+          canvas.height = frame.displayHeight;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(frame, 0, 0);
+          }
+        }
+        frame.close();
+      },
+      error: (err: DOMException) => {
+        console.error('VideoDecoder error:', err.message);
+      },
+    });
+    decoder.configure({
+      codec: 'avc1.640028', // H.264 High Profile Level 4.0
+      optimizeForLatency: true,
+    });
+    decoderRef.current = decoder;
+    h264BufferRef.current = [];
+    console.log('H.264 VideoDecoder initialized');
+  }, []);
+
+  // Parse H.264 NAL units from raw byte stream and feed to decoder
+  const handleH264Chunk = useCallback((data: Uint8Array) => {
+    const decoder = decoderRef.current;
+    if (!decoder || decoder.state !== 'configured') return;
+
+    // Find NAL unit boundaries (0x00 0x00 0x00 0x01 or 0x00 0x00 0x01)
+    const nalUnits: Uint8Array[] = [];
+    let start = -1;
+    for (let i = 0; i < data.length - 3; i++) {
+      if (data[i] === 0 && data[i + 1] === 0) {
+        if (data[i + 2] === 1 || (data[i + 2] === 0 && i + 3 < data.length && data[i + 3] === 1)) {
+          if (start >= 0) {
+            nalUnits.push(data.slice(start, i));
+          }
+          start = i;
+        }
+      }
+    }
+    if (start >= 0) {
+      nalUnits.push(data.slice(start));
+    }
+
+    // If no NAL boundaries found, treat entire chunk as one unit
+    if (nalUnits.length === 0 && data.length > 0) {
+      nalUnits.push(data);
+    }
+
+    for (const nal of nalUnits) {
+      // Determine NAL type (5 bits after start code)
+      let nalTypeIdx = 0;
+      if (nal[0] === 0 && nal[1] === 0 && nal[2] === 0 && nal[3] === 1) {
+        nalTypeIdx = 4;
+      } else if (nal[0] === 0 && nal[1] === 0 && nal[2] === 1) {
+        nalTypeIdx = 3;
+      }
+      const nalType = nalTypeIdx < nal.length ? (nal[nalTypeIdx] & 0x1f) : 0;
+      const isKeyFrame = nalType === 5; // IDR slice
+
+      try {
+        const chunk = new EncodedVideoChunk({
+          type: isKeyFrame ? 'key' : 'delta',
+          timestamp: performance.now() * 1000, // microseconds
+          data: nal,
+        });
+        decoder.decode(chunk);
+      } catch (err) {
+        // Skip malformed chunks
+      }
+    }
+  }, []);
+
   useEffect(() => {
     mountedRef.current = true;
     connectWebSocket();
@@ -170,7 +273,7 @@ export default function ScreenViewer({ deviceSerial, deviceResolution, isOnline 
       if (wsRef.current) {
         const ws = wsRef.current;
         wsRef.current = null;
-        ws.onclose = null; // Prevent reconnect on cleanup
+        ws.onclose = null;
         ws.close();
       }
       if (fpsIntervalRef.current) {
@@ -178,6 +281,10 @@ export default function ScreenViewer({ deviceSerial, deviceResolution, isOnline 
       }
       if (blobUrlRef.current) {
         URL.revokeObjectURL(blobUrlRef.current);
+      }
+      if (decoderRef.current) {
+        try { decoderRef.current.close(); } catch {}
+        decoderRef.current = null;
       }
     };
   }, [connectWebSocket]);
@@ -188,10 +295,11 @@ export default function ScreenViewer({ deviceSerial, deviceResolution, isOnline 
     }
   };
 
-  // Calculate device coordinates from click position on image
+  // Calculate device coordinates from click position on image/canvas
   const getDeviceCoords = (clientX: number, clientY: number) => {
-    if (!imgRef.current) return null;
-    const rect = imgRef.current.getBoundingClientRect();
+    const el = codecMode === 'h264' ? canvasRef.current : imgRef.current;
+    if (!el) return null;
+    const rect = el.getBoundingClientRect();
     const relX = (clientX - rect.left) / rect.width;
     const relY = (clientY - rect.top) / rect.height;
     return {
@@ -305,15 +413,25 @@ export default function ScreenViewer({ deviceSerial, deviceResolution, isOnline 
         style={{ cursor: streaming ? 'crosshair' : 'default' }}
       >
         {streaming ? (
-          <img
-            ref={imgRef}
-            alt="Device Screen"
-            className="w-full h-full object-contain select-none"
-            draggable={false}
-            onMouseDown={handleMouseDown}
-            onMouseUp={handleMouseUp}
-            onContextMenu={(e) => e.preventDefault()}
-          />
+          codecMode === 'h264' ? (
+            <canvas
+              ref={canvasRef}
+              className="w-full h-full object-contain select-none"
+              onMouseDown={handleMouseDown}
+              onMouseUp={handleMouseUp}
+              onContextMenu={(e) => e.preventDefault()}
+            />
+          ) : (
+            <img
+              ref={imgRef}
+              alt="Device Screen"
+              className="w-full h-full object-contain select-none"
+              draggable={false}
+              onMouseDown={handleMouseDown}
+              onMouseUp={handleMouseUp}
+              onContextMenu={(e) => e.preventDefault()}
+            />
+          )
         ) : (
           <div className="text-center p-6">
             {isOnline ? (

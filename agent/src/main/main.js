@@ -5,7 +5,7 @@ const AutoLaunch = require('auto-launch');
 const { AdbManager } = require('./adb-manager');
 const { ServerBridge } = require('./server-bridge');
 const { SetupManager } = require('./setup-manager');
-const { ScreenStreamer } = require('./screen-streamer');
+const { ScrcpyStreamer } = require('./scrcpy-streamer');
 const { AutoUpdater } = require('./auto-updater');
 
 // Single instance lock
@@ -398,8 +398,8 @@ function startBridge() {
 
   autoUpdater.start();
 
-  // Initialize screen streamer
-  screenStreamer = new ScreenStreamer(serverUrl, apiKey, adbManager);
+  // Initialize screen streamer (scrcpy H.264 with screencap fallback)
+  screenStreamer = new ScrcpyStreamer(serverUrl, apiKey, adbManager);
 
   screenStreamer.on('stream_connected', (data) => {
     sendToRenderer('stream-status', { serial: data.serial, status: 'connected' });

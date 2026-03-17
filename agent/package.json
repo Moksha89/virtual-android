@@ -41,6 +41,10 @@
         "filter": [
           "**/*"
         ]
+      },
+      {
+        "from": "scrcpy-server.jar",
+        "to": "scrcpy-server.jar"
       }
     ],
     "win": {
