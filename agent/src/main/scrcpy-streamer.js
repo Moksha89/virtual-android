@@ -140,6 +140,23 @@ class ScrcpyStreamer extends EventEmitter {
           case 'swipe_gesture':
             await this.adbManager.swipeGesture(serial, msg.direction);
             break;
+          case 'request_codec':
+            // Browser requested a specific codec mode (e.g., screencap fallback)
+            if (msg.codec === 'screencap' && streamState.useScrcpy) {
+              console.log(`[scrcpy] Browser requested screencap mode for ${serial}`);
+              // Stop scrcpy and switch to screencap
+              if (streamState.scrcpyProcess) {
+                try { streamState.scrcpyProcess.kill(); } catch {}
+                streamState.scrcpyProcess = null;
+              }
+              if (streamState.tcpSocket) {
+                try { streamState.tcpSocket.destroy(); } catch {}
+                streamState.tcpSocket = null;
+              }
+              streamState.useScrcpy = false;
+              this._startScreencapFallback(serial, streamState);
+            }
+            break;
           default:
             console.log(`[scrcpy] Unknown message type: ${msg.type}`);
         }

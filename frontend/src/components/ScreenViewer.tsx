@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
+import JMuxer from 'jmuxer';
 import {
   Wifi,
   WifiOff,
@@ -42,15 +43,14 @@ export default function ScreenViewer({ deviceSerial, deviceResolution, isOnline 
   const [codecMode, setCodecMode] = useState<'unknown' | 'h264' | 'screencap'>('unknown');
   const wsRef = useRef<WebSocket | null>(null);
   const imgRef = useRef<HTMLImageElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const frameCountRef = useRef(0);
   const fpsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const blobUrlRef = useRef<string | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mountedRef = useRef(true);
-  const decoderRef = useRef<VideoDecoder | null>(null);
-  const h264BufferRef = useRef<Uint8Array[]>([]);
+  const jmuxerRef = useRef<JMuxer | null>(null);
   const codecModeRef = useRef<'unknown' | 'h264' | 'screencap'>('unknown');
   // Stable tab identifier - survives reconnects within same tab
   const tabIdRef = useRef(Math.random().toString(36).substring(2) + Date.now().toString(36));
@@ -102,9 +102,9 @@ export default function ScreenViewer({ deviceSerial, deviceResolution, isOnline 
           // H.264 mode: decode with WebCodecs VideoDecoder
           handleH264Chunk(data);
         } else {
-          // Screencap fallback mode: display as image (PNG from agent)
+          // Screencap fallback mode: display as image (JPEG from backend compression)
           frameCountRef.current++;
-          const blob = new Blob([event.data], { type: 'image/png' });
+          const blob = new Blob([event.data], { type: 'image/jpeg' });
           const url = URL.createObjectURL(blob);
           const oldUrl = blobUrlRef.current;
           blobUrlRef.current = url;
@@ -132,7 +132,9 @@ export default function ScreenViewer({ deviceSerial, deviceResolution, isOnline 
             codecModeRef.current = msg.codec;
             setCodecMode(msg.codec);
             if (msg.codec === 'h264') {
-              initH264Decoder();
+              // Set streaming=true so the <video> element renders,
+              // then useEffect below will init jmuxer once the element is in the DOM
+              setStreaming(true);
             }
           }
         } catch {
@@ -165,94 +167,59 @@ export default function ScreenViewer({ deviceSerial, deviceResolution, isOnline 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deviceSerial, isOnline]);
 
-  // H.264 WebCodecs decoder initialization
+  // H.264 decoder initialization using jmuxer (MSE-based, works on HTTP)
   const initH264Decoder = useCallback(() => {
-    if (decoderRef.current) {
-      try { decoderRef.current.close(); } catch {}
+    if (jmuxerRef.current) {
+      try { jmuxerRef.current.destroy(); } catch {}
+      jmuxerRef.current = null;
     }
-    if (typeof VideoDecoder === 'undefined') {
-      console.warn('WebCodecs VideoDecoder not available, falling back to screencap');
-      codecModeRef.current = 'screencap';
-      setCodecMode('screencap');
+
+    const videoEl = videoRef.current;
+    if (!videoEl) {
+      console.warn('Video element not ready for H.264 decoder');
       return;
     }
-    const decoder = new VideoDecoder({
-      output: (frame: VideoFrame) => {
-        frameCountRef.current++;
-        const canvas = canvasRef.current;
-        if (canvas) {
-          canvas.width = frame.displayWidth;
-          canvas.height = frame.displayHeight;
-          const ctx = canvas.getContext('2d');
-          if (ctx) {
-            ctx.drawImage(frame, 0, 0);
-          }
-        }
-        frame.close();
-      },
-      error: (err: DOMException) => {
-        console.error('VideoDecoder error:', err.message);
-      },
-    });
-    decoder.configure({
-      codec: 'avc1.640028', // H.264 High Profile Level 4.0
-      optimizeForLatency: true,
-    });
-    decoderRef.current = decoder;
-    h264BufferRef.current = [];
-    console.log('H.264 VideoDecoder initialized');
+
+    try {
+      const jmuxer = new JMuxer({
+        node: videoEl,
+        mode: 'video',
+        flushingTime: 0, // Minimal latency - flush immediately
+        fps: 30,
+        debug: false,
+      });
+      jmuxerRef.current = jmuxer;
+      console.log('H.264 jmuxer decoder initialized (MSE-based)');
+    } catch (err) {
+      console.error('Failed to initialize jmuxer:', err);
+      // Request screencap fallback from agent
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({ type: 'request_codec', codec: 'screencap' }));
+      }
+      codecModeRef.current = 'screencap';
+      setCodecMode('screencap');
+    }
   }, []);
 
-  // Parse H.264 NAL units from raw byte stream and feed to decoder
+  // Feed H.264 data to jmuxer
   const handleH264Chunk = useCallback((data: Uint8Array) => {
-    const decoder = decoderRef.current;
-    if (!decoder || decoder.state !== 'configured') return;
+    const jmuxer = jmuxerRef.current;
+    if (!jmuxer) return;
 
-    // Find NAL unit boundaries (0x00 0x00 0x00 0x01 or 0x00 0x00 0x01)
-    const nalUnits: Uint8Array[] = [];
-    let start = -1;
-    for (let i = 0; i < data.length - 3; i++) {
-      if (data[i] === 0 && data[i + 1] === 0) {
-        if (data[i + 2] === 1 || (data[i + 2] === 0 && i + 3 < data.length && data[i + 3] === 1)) {
-          if (start >= 0) {
-            nalUnits.push(data.slice(start, i));
-          }
-          start = i;
-        }
-      }
-    }
-    if (start >= 0) {
-      nalUnits.push(data.slice(start));
-    }
-
-    // If no NAL boundaries found, treat entire chunk as one unit
-    if (nalUnits.length === 0 && data.length > 0) {
-      nalUnits.push(data);
-    }
-
-    for (const nal of nalUnits) {
-      // Determine NAL type (5 bits after start code)
-      let nalTypeIdx = 0;
-      if (nal[0] === 0 && nal[1] === 0 && nal[2] === 0 && nal[3] === 1) {
-        nalTypeIdx = 4;
-      } else if (nal[0] === 0 && nal[1] === 0 && nal[2] === 1) {
-        nalTypeIdx = 3;
-      }
-      const nalType = nalTypeIdx < nal.length ? (nal[nalTypeIdx] & 0x1f) : 0;
-      const isKeyFrame = nalType === 5; // IDR slice
-
-      try {
-        const chunk = new EncodedVideoChunk({
-          type: isKeyFrame ? 'key' : 'delta',
-          timestamp: performance.now() * 1000, // microseconds
-          data: nal,
-        });
-        decoder.decode(chunk);
-      } catch (err) {
-        // Skip malformed chunks
-      }
+    try {
+      jmuxer.feed({ video: data });
+      frameCountRef.current++;
+    } catch (err) {
+      // Skip malformed chunks
     }
   }, []);
+
+  // Initialize jmuxer when codec is h264 and video element is in the DOM
+  useEffect(() => {
+    if (codecMode === 'h264' && streaming && videoRef.current && !jmuxerRef.current) {
+      initH264Decoder();
+    }
+  }, [codecMode, streaming, initH264Decoder]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -282,9 +249,9 @@ export default function ScreenViewer({ deviceSerial, deviceResolution, isOnline 
       if (blobUrlRef.current) {
         URL.revokeObjectURL(blobUrlRef.current);
       }
-      if (decoderRef.current) {
-        try { decoderRef.current.close(); } catch {}
-        decoderRef.current = null;
+      if (jmuxerRef.current) {
+        try { jmuxerRef.current.destroy(); } catch {}
+        jmuxerRef.current = null;
       }
     };
   }, [connectWebSocket]);
@@ -297,7 +264,7 @@ export default function ScreenViewer({ deviceSerial, deviceResolution, isOnline 
 
   // Calculate device coordinates from click position on image/canvas
   const getDeviceCoords = (clientX: number, clientY: number) => {
-    const el = codecMode === 'h264' ? canvasRef.current : imgRef.current;
+    const el = codecMode === 'h264' ? videoRef.current : imgRef.current;
     if (!el) return null;
     const rect = el.getBoundingClientRect();
     const relX = (clientX - rect.left) / rect.width;
@@ -414,9 +381,12 @@ export default function ScreenViewer({ deviceSerial, deviceResolution, isOnline 
       >
         {streaming ? (
           codecMode === 'h264' ? (
-            <canvas
-              ref={canvasRef}
-              className="w-full h-full object-contain select-none"
+            <video
+              ref={videoRef}
+              autoPlay
+              muted
+              playsInline
+              className="w-full h-full object-contain select-none bg-black"
               onMouseDown={handleMouseDown}
               onMouseUp={handleMouseUp}
               onContextMenu={(e) => e.preventDefault()}
