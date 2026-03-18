@@ -45,7 +45,9 @@ const compressionActive = new Map<string, boolean>();
 
 // H.264 validation: detect garbage data and auto-fallback to screencap
 const h264GarbageCount = new Map<string, number>();
-const H264_GARBAGE_THRESHOLD = 15; // After 15 garbage chunks (~1s), switch to screencap fast
+const H264_GARBAGE_THRESHOLD = 5; // After 5 garbage chunks, switch to screencap immediately
+const NO_FRAMES_TIMEOUT = 5000; // If h264 mode but no frames for 5s, force-close agent to trigger reconnect
+const agentFirstFrameTime = new Map<string, number>(); // Track when agent connected, to detect no-frame situation
 const h264BlacklistedDevices = new Set<string>(); // Devices known to have broken h264
 
 function isValidH264Data(data: Buffer): boolean {
@@ -151,17 +153,32 @@ export function setupScreenRelay(server: HttpServer): WebSocketServer {
         }
       });
 
-      // Always start streaming immediately so frames are cached for instant initial load
+      // Force screencap mode: send request_codec BEFORE start_streaming so agent
+      // processes it first and starts in screencap mode (not scrcpy h264)
+      console.log(`Forcing screencap mode for device: ${serial} (skipping unreliable H.264)`);
+      ws.send(JSON.stringify({ type: 'request_codec', codec: 'screencap' }));
+
+      // Start streaming after codec request — agent will use screencap mode
       ws.send(JSON.stringify({ type: 'start_streaming' }));
 
-      // Force screencap mode immediately — scrcpy H.264 doesn't work reliably on HTTP
-      // This eliminates the delay from trying H.264 first and waiting for watchdog
-      console.log(`Forcing screencap mode for device: ${serial} (skipping unreliable H.264)`);
+      // Track connection time to detect no-frame situation
+      agentFirstFrameTime.set(serial, Date.now());
+
+      // Watchdog: if no frames arrive within 5 seconds, force-close agent to trigger reconnect
+      // This handles old agents that don't support request_codec
       setTimeout(() => {
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: 'request_codec', codec: 'screencap' }));
+        const connectTime = agentFirstFrameTime.get(serial);
+        const codec = deviceCodec.get(serial) || 'unknown';
+        if (connectTime && codec !== 'screencap' && ws.readyState === WebSocket.OPEN) {
+          // Check if any frames were relayed (frameRelayCount is global, but this is a heuristic)
+          const cached = lastCachedFrame.get(serial);
+          const cacheAge = cached ? Date.now() - connectTime : Infinity;
+          if (cacheAge > 4000) {
+            console.log(`[No-frame watchdog] ${serial}: No screencap frames after 5s, force-closing agent to trigger reconnect`);
+            ws.close(4006, 'No frames received - reconnect required');
+          }
         }
-      }, 1000); // Give agent time to set up before requesting codec switch
+      }, NO_FRAMES_TIMEOUT);
     } else if (role === 'browser') {
       const token = url.searchParams.get('token');
       if (token) {
@@ -247,13 +264,11 @@ export function setupScreenRelay(server: HttpServer): WebSocketServer {
           ws.send(JSON.stringify({ type: 'codec', codec }));
         }
 
-        // Send cached frame for instant first paint (screencap mode only)
-        if (codec === 'screencap' || codec === 'unknown') {
-          const cached = lastCachedFrame.get(serial);
-          if (cached) {
-            ws.send(cached, { binary: true });
-            console.log(`Sent cached frame (${(cached.length / 1024).toFixed(0)}KB) to new browser for ${serial}`);
-          }
+        // Send cached frame for instant first paint (always, regardless of codec)
+        const cached = lastCachedFrame.get(serial);
+        if (cached) {
+          ws.send(cached, { binary: true });
+          console.log(`Sent cached frame (${(cached.length / 1024).toFixed(0)}KB) to new browser for ${serial}`);
         }
 
         session.agent.send(JSON.stringify({ type: 'start_streaming' }));
@@ -324,6 +339,18 @@ export function setupScreenRelay(server: HttpServer): WebSocketServer {
                 // Tell agent to switch to screencap mode
                 if (session.agent && session.agent.readyState === WebSocket.OPEN) {
                   session.agent.send(JSON.stringify({ type: 'request_codec', codec: 'screencap' }));
+                  // If agent doesn't respond within 3s, force-close to trigger reconnect
+                  setTimeout(() => {
+                    const currentCodec = deviceCodec.get(ws.deviceSerial!);
+                    if (currentCodec === 'screencap') {
+                      // Check if screencap frames are actually arriving
+                      const cached = lastCachedFrame.get(ws.deviceSerial!);
+                      if (!cached && ws.readyState === WebSocket.OPEN) {
+                        console.log(`[H264 watchdog] ${ws.deviceSerial}: Agent didn't switch to screencap, force-closing`);
+                        ws.close(4006, 'Agent failed to switch codec');
+                      }
+                    }
+                  }, 3000);
                 }
               }
               // Don't relay garbage data to browsers
@@ -344,6 +371,10 @@ export function setupScreenRelay(server: HttpServer): WebSocketServer {
               deviceCodec.set(ws.deviceSerial!, msg.codec);
               session.codec = msg.codec;
               console.log(`Device ${ws.deviceSerial} codec set to: ${msg.codec}`);
+              // Clear no-frames watchdog when codec is confirmed
+              if (msg.codec === 'screencap') {
+                agentFirstFrameTime.delete(ws.deviceSerial!);
+              }
             }
           } catch {
             // Not JSON or parse error

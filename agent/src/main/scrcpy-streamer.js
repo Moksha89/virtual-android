@@ -78,7 +78,7 @@ class ScrcpyStreamer extends EventEmitter {
       pingInterval: null,
       framesSent: 0,
       bytesTotal: 0,
-      useScrcpy: !!this.scrcpyServerPath,
+      useScrcpy: false, // Always use screencap - scrcpy H.264 is unreliable on most devices over HTTP
       looping: false,
       framesSkipped: 0,
     };
@@ -141,10 +141,10 @@ class ScrcpyStreamer extends EventEmitter {
             await this.adbManager.swipeGesture(serial, msg.direction);
             break;
           case 'request_codec':
-            // Browser requested a specific codec mode (e.g., screencap fallback)
-            if (msg.codec === 'screencap' && streamState.useScrcpy) {
-              console.log(`[scrcpy] Browser requested screencap mode for ${serial}`);
-              // Stop scrcpy and switch to screencap
+            // Server requested a specific codec mode (e.g., screencap fallback)
+            if (msg.codec === 'screencap') {
+              console.log(`[scrcpy] Server requested screencap mode for ${serial} (useScrcpy was ${streamState.useScrcpy})`);
+              // Stop scrcpy if running and switch to screencap
               if (streamState.scrcpyProcess) {
                 try { streamState.scrcpyProcess.kill(); } catch {}
                 streamState.scrcpyProcess = null;
@@ -154,7 +154,10 @@ class ScrcpyStreamer extends EventEmitter {
                 streamState.tcpSocket = null;
               }
               streamState.useScrcpy = false;
-              this._startScreencapFallback(serial, streamState);
+              // Start screencap fallback if streaming is active and not already looping
+              if (streamState.streaming && !streamState.looping) {
+                this._startScreencapFallback(serial, streamState);
+              }
             }
             break;
           default:
