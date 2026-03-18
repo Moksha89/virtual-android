@@ -43,6 +43,24 @@ const SCALE_WIDTH = 540; // Scale down from 1080 to 540
 const latestFrameBuffer = new Map<string, Buffer>();
 const compressionActive = new Map<string, boolean>();
 
+// H.264 validation: detect garbage data and auto-fallback to screencap
+const h264GarbageCount = new Map<string, number>();
+const H264_GARBAGE_THRESHOLD = 15; // After 15 garbage chunks (~1s), switch to screencap fast
+const h264BlacklistedDevices = new Set<string>(); // Devices known to have broken h264
+
+function isValidH264Data(data: Buffer): boolean {
+  // Valid H.264 Annex B data starts with 00 00 00 01 or 00 00 01
+  if (data.length < 4) return false;
+  // Check for Annex B start codes anywhere in the first 10 bytes
+  for (let i = 0; i < Math.min(data.length - 3, 10); i++) {
+    if (data[i] === 0 && data[i + 1] === 0) {
+      if (data[i + 2] === 1) return true; // 00 00 01
+      if (data[i + 2] === 0 && i + 3 < data.length && data[i + 3] === 1) return true; // 00 00 00 01
+    }
+  }
+  return false;
+}
+
 async function compressAndRelay(serial: string, session: { agent: ScreenSocket | null; browsers: Map<string, ScreenSocket>; codec: string }) {
   if (compressionActive.get(serial)) {
     // Already compressing — the latest frame will be picked up after current one finishes
@@ -135,6 +153,15 @@ export function setupScreenRelay(server: HttpServer): WebSocketServer {
 
       // Always start streaming immediately so frames are cached for instant initial load
       ws.send(JSON.stringify({ type: 'start_streaming' }));
+
+      // Force screencap mode immediately — scrcpy H.264 doesn't work reliably on HTTP
+      // This eliminates the delay from trying H.264 first and waiting for watchdog
+      console.log(`Forcing screencap mode for device: ${serial} (skipping unreliable H.264)`);
+      setTimeout(() => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'request_codec', codec: 'screencap' }));
+        }
+      }, 1000); // Give agent time to set up before requesting codec switch
     } else if (role === 'browser') {
       const token = url.searchParams.get('token');
       if (token) {
@@ -266,14 +293,41 @@ export function setupScreenRelay(server: HttpServer): WebSocketServer {
           }
 
           if (codec === 'h264') {
-            // H.264 mode: DIRECT PASS-THROUGH, zero processing overhead
-            frameRelayCount++;
-            totalBytesRelayed += frameData.length;
-            session.browsers.forEach((browser) => {
-              if (browser.readyState === WebSocket.OPEN) {
-                browser.send(frameData, { binary: true });
+            // H.264 mode: validate data before pass-through
+            if (isValidH264Data(frameData)) {
+              // Valid H.264 - reset garbage counter and relay
+              h264GarbageCount.set(ws.deviceSerial!, 0);
+              frameRelayCount++;
+              totalBytesRelayed += frameData.length;
+              session.browsers.forEach((browser) => {
+                if (browser.readyState === WebSocket.OPEN) {
+                  browser.send(frameData, { binary: true });
+                }
+              });
+            } else {
+              // Invalid/garbage H.264 data - count failures
+              const count = (h264GarbageCount.get(ws.deviceSerial!) || 0) + 1;
+              h264GarbageCount.set(ws.deviceSerial!, count);
+
+              if (count === H264_GARBAGE_THRESHOLD) {
+                console.log(`[H264 watchdog] ${ws.deviceSerial}: ${count} garbage chunks detected, forcing screencap fallback`);
+                h264BlacklistedDevices.add(ws.deviceSerial!); // Remember this device has bad h264
+                // Switch session to screencap mode
+                deviceCodec.set(ws.deviceSerial!, 'screencap');
+                session.codec = 'screencap';
+                // Tell browsers to switch to screencap mode
+                session.browsers.forEach((browser) => {
+                  if (browser.readyState === WebSocket.OPEN) {
+                    browser.send(JSON.stringify({ type: 'codec', codec: 'screencap' }));
+                  }
+                });
+                // Tell agent to switch to screencap mode
+                if (session.agent && session.agent.readyState === WebSocket.OPEN) {
+                  session.agent.send(JSON.stringify({ type: 'request_codec', codec: 'screencap' }));
+                }
               }
-            });
+              // Don't relay garbage data to browsers
+            }
           } else {
             // Screencap mode: compress PNG->JPEG with "latest frame only" pattern
             latestFrameBuffer.set(ws.deviceSerial!, frameData);

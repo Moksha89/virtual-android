@@ -131,12 +131,20 @@ export default function ScreenViewer({ deviceSerial, deviceResolution, isOnline 
             setStreaming(false);
           } else if (msg.type === 'codec') {
             console.log('Codec mode:', msg.codec);
+            const prevCodec = codecModeRef.current;
             codecModeRef.current = msg.codec;
             setCodecMode(msg.codec);
             if (msg.codec === 'h264') {
               // Set streaming=true so the <video> element renders,
               // then useEffect below will init jmuxer once the element is in the DOM
               setStreaming(true);
+            } else if (msg.codec === 'screencap' && prevCodec === 'h264') {
+              // Switching from h264 to screencap - cleanup jmuxer
+              console.log('Switching from H.264 to screencap mode');
+              if (jmuxerRef.current) {
+                try { jmuxerRef.current.destroy(); } catch {}
+                jmuxerRef.current = null;
+              }
             }
           }
         } catch {
