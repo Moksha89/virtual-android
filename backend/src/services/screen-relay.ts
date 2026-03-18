@@ -1,6 +1,7 @@
 import { Server as HttpServer } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import jwt from 'jsonwebtoken';
+import sharp from 'sharp';
 import pool from '../config/database';
 import { JwtPayload } from '../types';
 
@@ -33,6 +34,50 @@ let totalBytesRelayed = 0;
 // Cache last frame per device for instant initial load (screencap mode only)
 const lastCachedFrame = new Map<string, Buffer>();
 const deviceCodec = new Map<string, string>();
+
+// Screencap compression settings
+const JPEG_QUALITY = 40;
+const SCALE_WIDTH = 540; // Scale down from 1080 to 540
+
+// "Latest frame only" pattern: drop stale frames during compression
+const latestFrameBuffer = new Map<string, Buffer>();
+const compressionActive = new Map<string, boolean>();
+
+async function compressAndRelay(serial: string, session: { agent: ScreenSocket | null; browsers: Map<string, ScreenSocket>; codec: string }) {
+  if (compressionActive.get(serial)) {
+    // Already compressing — the latest frame will be picked up after current one finishes
+    return;
+  }
+  compressionActive.set(serial, true);
+
+  while (latestFrameBuffer.has(serial)) {
+    const frameData = latestFrameBuffer.get(serial)!;
+    latestFrameBuffer.delete(serial);
+
+    try {
+      const compressed = await sharp(frameData)
+        .resize(SCALE_WIDTH, undefined, { fit: 'inside' })
+        .jpeg({ quality: JPEG_QUALITY })
+        .toBuffer();
+
+      lastCachedFrame.set(serial, compressed);
+
+      // Relay compressed frame to all browsers
+      session.browsers.forEach((browser) => {
+        if (browser.readyState === WebSocket.OPEN) {
+          browser.send(compressed, { binary: true });
+        }
+      });
+
+      frameRelayCount++;
+      totalBytesRelayed += compressed.length;
+    } catch (err) {
+      // Skip malformed frames
+    }
+  }
+
+  compressionActive.set(serial, false);
+}
 
 export function setupScreenRelay(server: HttpServer): WebSocketServer {
   const wss = new WebSocketServer({ noServer: true });
@@ -207,18 +252,10 @@ export function setupScreenRelay(server: HttpServer): WebSocketServer {
       if (ws.role === 'agent') {
         if (isBinary) {
           // Binary data from agent - H.264 chunks or PNG screencap frames
-          // DIRECT PASS-THROUGH: No compression, no processing, just relay
           const frameData = data as Buffer;
           const codec = deviceCodec.get(ws.deviceSerial!) || 'unknown';
 
-          // Cache frame for instant delivery to new browsers (screencap mode only)
-          if (codec !== 'h264') {
-            lastCachedFrame.set(ws.deviceSerial!, frameData);
-          }
-
-          // Track stats
-          frameRelayCount++;
-          totalBytesRelayed += frameData.length;
+          // Log stats every 10s
           const now = Date.now();
           if (now - lastFrameLogTime > 10000) {
             const activeBrowsers = Array.from(session.browsers.values()).filter(b => b.readyState === WebSocket.OPEN).length;
@@ -228,12 +265,20 @@ export function setupScreenRelay(server: HttpServer): WebSocketServer {
             lastFrameLogTime = now;
           }
 
-          // Relay directly to all browsers - ZERO processing overhead
-          session.browsers.forEach((browser) => {
-            if (browser.readyState === WebSocket.OPEN) {
-              browser.send(frameData, { binary: true });
-            }
-          });
+          if (codec === 'h264') {
+            // H.264 mode: DIRECT PASS-THROUGH, zero processing overhead
+            frameRelayCount++;
+            totalBytesRelayed += frameData.length;
+            session.browsers.forEach((browser) => {
+              if (browser.readyState === WebSocket.OPEN) {
+                browser.send(frameData, { binary: true });
+              }
+            });
+          } else {
+            // Screencap mode: compress PNG->JPEG with "latest frame only" pattern
+            latestFrameBuffer.set(ws.deviceSerial!, frameData);
+            compressAndRelay(ws.deviceSerial!, session);
+          }
         } else {
           // JSON message from agent
           const msgStr = data.toString();
