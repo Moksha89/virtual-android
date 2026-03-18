@@ -6,16 +6,17 @@ const path = require('path');
 const fs = require('fs');
 
 /**
- * ScrcpyStreamer - Uses scrcpy-server to stream H.264 video from Android devices.
- * Falls back to ADB screencap if scrcpy fails.
+ * ScrcpyStreamer - Streams Android device screens over WebSocket.
  * 
- * Flow:
- * 1. Push scrcpy-server.jar to device
- * 2. Start scrcpy server with raw_stream=true
- * 3. Forward TCP port and connect to read raw H.264 stream
- * 4. Send H.264 NAL units over WebSocket to backend
- * 5. Backend relays to browser
- * 6. Browser decodes with WebCodecs API
+ * Supports two modes:
+ * 1. H.264 mode: Uses `adb exec-out screenrecord --output-format=h264` to pipe
+ *    raw H.264 Annex B NAL units. 15-30 FPS, very low bandwidth. Requires HTTPS
+ *    (WebCodecs) or MSE (jmuxer) for browser decoding. Auto-restarts every 3 min
+ *    (Android screenrecord limit).
+ * 2. Screencap fallback: Uses `adb screencap -p` for PNG screenshots. ~2-3 FPS,
+ *    higher bandwidth but works everywhere.
+ * 
+ * The backend tells the agent which codec to use via `request_codec` message.
  */
 class ScrcpyStreamer extends EventEmitter {
   constructor(serverUrl, apiKey, adbManager) {
@@ -28,6 +29,7 @@ class ScrcpyStreamer extends EventEmitter {
     this.scrcpyVersion = '2.7';
     this.localPortBase = 27183;
     this.nextPort = this.localPortBase;
+    this.screenrecordSupported = new Map(); // serial -> boolean
   }
 
   _findScrcpyServer() {
@@ -73,14 +75,17 @@ class ScrcpyStreamer extends EventEmitter {
       ws,
       streaming: false,
       scrcpyProcess: null,
+      screenrecordProcess: null,
       tcpSocket: null,
       localPort: null,
       pingInterval: null,
       framesSent: 0,
       bytesTotal: 0,
-      useScrcpy: false, // Always use screencap - scrcpy H.264 is unreliable on most devices over HTTP
+      useScrcpy: false,
+      useScreenrecord: false, // H.264 via adb screenrecord
       looping: false,
       framesSkipped: 0,
+      codec: 'screencap', // Current active codec: 'h264' or 'screencap'
     };
 
     ws.on('open', () => {
@@ -96,10 +101,10 @@ class ScrcpyStreamer extends EventEmitter {
         const msg = JSON.parse(data.toString());
         switch (msg.type) {
           case 'start_streaming':
-            console.log(`[scrcpy] Start streaming for ${serial}`);
+            console.log(`[stream] Start streaming for ${serial} (codec: ${streamState.codec})`);
             streamState.streaming = true;
-            if (streamState.useScrcpy) {
-              this._startScrcpyStream(serial, streamState);
+            if (streamState.codec === 'h264') {
+              this._startScreenrecordH264(serial, streamState);
             } else {
               this._startScreencapFallback(serial, streamState);
             }
@@ -141,22 +146,20 @@ class ScrcpyStreamer extends EventEmitter {
             await this.adbManager.swipeGesture(serial, msg.direction);
             break;
           case 'request_codec':
-            // Server requested a specific codec mode (e.g., screencap fallback)
-            if (msg.codec === 'screencap') {
-              console.log(`[scrcpy] Server requested screencap mode for ${serial} (useScrcpy was ${streamState.useScrcpy})`);
-              // Stop scrcpy if running and switch to screencap
-              if (streamState.scrcpyProcess) {
-                try { streamState.scrcpyProcess.kill(); } catch {}
-                streamState.scrcpyProcess = null;
-              }
-              if (streamState.tcpSocket) {
-                try { streamState.tcpSocket.destroy(); } catch {}
-                streamState.tcpSocket = null;
-              }
-              streamState.useScrcpy = false;
-              // Start screencap fallback if streaming is active and not already looping
+            console.log(`[stream] Server requested codec: ${msg.codec} for ${serial} (current: ${streamState.codec})`);
+            if (msg.codec === 'screencap' && streamState.codec !== 'screencap') {
+              // Stop H.264 streaming and switch to screencap
+              this._stopH264(streamState);
+              streamState.codec = 'screencap';
               if (streamState.streaming && !streamState.looping) {
                 this._startScreencapFallback(serial, streamState);
+              }
+            } else if (msg.codec === 'h264' && streamState.codec !== 'h264') {
+              // Stop screencap and switch to H.264 screenrecord
+              streamState.looping = false; // Stop screencap loop
+              streamState.codec = 'h264';
+              if (streamState.streaming) {
+                this._startScreenrecordH264(serial, streamState);
               }
             }
             break;
@@ -190,6 +193,125 @@ class ScrcpyStreamer extends EventEmitter {
     });
 
     this.activeStreams.set(serial, streamState);
+  }
+
+  /**
+   * Start H.264 streaming using `adb exec-out screenrecord --output-format=h264 -`
+   * This pipes raw H.264 Annex B NAL units from the device's hardware encoder.
+   * Auto-restarts every ~3 minutes (Android screenrecord limit).
+   */
+  _startScreenrecordH264(serial, streamState) {
+    if (streamState.screenrecordProcess) {
+      try { streamState.screenrecordProcess.kill('SIGKILL'); } catch {}
+      streamState.screenrecordProcess = null;
+    }
+
+    const adbPath = this.adbManager.adbPath;
+    streamState.useScreenrecord = true;
+    streamState.codec = 'h264';
+
+    // Notify backend we're sending H.264
+    if (streamState.ws.readyState === WebSocket.OPEN) {
+      streamState.ws.send(JSON.stringify({ type: 'codec', codec: 'h264' }));
+    }
+
+    const startRecording = () => {
+      if (!streamState.streaming || !streamState.useScreenrecord) return;
+
+      console.log(`[h264] Starting screenrecord H.264 pipe for ${serial}...`);
+      const proc = spawn(adbPath, [
+        '-s', serial, 'exec-out',
+        'screenrecord',
+        '--output-format=h264',
+        '--size', '720x1280',
+        '--bit-rate', '2000000',
+        '-'  // pipe to stdout
+      ], {
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+
+      streamState.screenrecordProcess = proc;
+      let chunkCount = 0;
+
+      proc.stdout.on('data', (chunk) => {
+        if (!streamState.streaming || !streamState.useScreenrecord) return;
+        if (streamState.ws.readyState !== WebSocket.OPEN) return;
+
+        // Backpressure: skip if WebSocket buffer is too full
+        if (streamState.ws.bufferedAmount > 512 * 1024) {
+          streamState.framesSkipped++;
+          return;
+        }
+
+        streamState.ws.send(chunk, { binary: true });
+        streamState.framesSent++;
+        streamState.bytesTotal += chunk.length;
+        chunkCount++;
+
+        if (chunkCount % 100 === 1) {
+          const kbSent = (streamState.bytesTotal / 1024).toFixed(0);
+          console.log(`[h264] ${serial}: ${chunkCount} chunks, ${kbSent}KB total, ${streamState.framesSkipped} skipped`);
+        }
+      });
+
+      proc.stderr.on('data', (data) => {
+        const msg = data.toString().trim();
+        if (msg) console.log(`[h264-stderr] ${serial}: ${msg}`);
+      });
+
+      proc.on('exit', (code) => {
+        console.log(`[h264] screenrecord exited (code ${code}) for ${serial}`);
+        streamState.screenrecordProcess = null;
+
+        if (streamState.streaming && streamState.useScreenrecord) {
+          if (code === null || code === 0 || code === 1) {
+            // Normal exit (3-min limit) or killed — auto-restart
+            console.log(`[h264] Auto-restarting screenrecord for ${serial}...`);
+            setTimeout(() => startRecording(), 200);
+          } else {
+            // Unexpected error — fall back to screencap
+            console.log(`[h264] screenrecord failed (code ${code}), falling back to screencap for ${serial}`);
+            streamState.useScreenrecord = false;
+            streamState.codec = 'screencap';
+            if (streamState.ws.readyState === WebSocket.OPEN) {
+              streamState.ws.send(JSON.stringify({ type: 'codec', codec: 'screencap' }));
+            }
+            this._startScreencapFallback(serial, streamState);
+          }
+        }
+      });
+
+      proc.on('error', (err) => {
+        console.error(`[h264] screenrecord spawn error for ${serial}:`, err.message);
+        streamState.screenrecordProcess = null;
+        // Fall back to screencap
+        streamState.useScreenrecord = false;
+        streamState.codec = 'screencap';
+        if (streamState.ws.readyState === WebSocket.OPEN) {
+          streamState.ws.send(JSON.stringify({ type: 'codec', codec: 'screencap' }));
+        }
+        this._startScreencapFallback(serial, streamState);
+      });
+    };
+
+    startRecording();
+  }
+
+  _stopH264(streamState) {
+    streamState.useScreenrecord = false;
+    if (streamState.screenrecordProcess) {
+      try { streamState.screenrecordProcess.kill('SIGKILL'); } catch {}
+      streamState.screenrecordProcess = null;
+    }
+    // Also stop scrcpy if running
+    if (streamState.scrcpyProcess) {
+      try { streamState.scrcpyProcess.kill(); } catch {}
+      streamState.scrcpyProcess = null;
+    }
+    if (streamState.tcpSocket) {
+      try { streamState.tcpSocket.destroy(); } catch {}
+      streamState.tcpSocket = null;
+    }
   }
 
   async _startScrcpyStream(serial, streamState) {
@@ -364,6 +486,12 @@ class ScrcpyStreamer extends EventEmitter {
   _stopStream(streamState) {
     streamState.streaming = false;
     streamState.looping = false;
+    streamState.useScreenrecord = false;
+
+    if (streamState.screenrecordProcess) {
+      try { streamState.screenrecordProcess.kill('SIGKILL'); } catch {}
+      streamState.screenrecordProcess = null;
+    }
 
     if (streamState.tcpSocket) {
       try { streamState.tcpSocket.destroy(); } catch {}

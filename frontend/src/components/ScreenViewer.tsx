@@ -229,12 +229,12 @@ export default function ScreenViewer({ deviceSerial, deviceResolution, isOnline 
     if (codecMode === 'h264' && streaming && videoRef.current && !jmuxerRef.current) {
       initH264Decoder();
 
-      // H.264 watchdog: if video doesn't start playing within 4 seconds, fall back to screencap
+      // H.264 watchdog: if video doesn't start playing within 6 seconds, fall back to screencap
       h264ChunksReceivedRef.current = 0;
       h264WatchdogRef.current = setTimeout(() => {
         const video = videoRef.current;
         if (video && (video.readyState === 0 || video.videoWidth === 0)) {
-          console.warn('H.264 watchdog: video not playing after 4s, falling back to screencap');
+          console.warn('H.264 watchdog: video not playing after 6s, falling back to screencap');
           // Destroy jmuxer
           if (jmuxerRef.current) {
             try { jmuxerRef.current.destroy(); } catch {}

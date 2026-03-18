@@ -46,7 +46,7 @@ const compressionActive = new Map<string, boolean>();
 // H.264 validation: detect garbage data and auto-fallback to screencap
 const h264GarbageCount = new Map<string, number>();
 const H264_GARBAGE_THRESHOLD = 5; // After 5 garbage chunks, switch to screencap immediately
-const NO_FRAMES_TIMEOUT = 5000; // If h264 mode but no frames for 5s, force-close agent to trigger reconnect
+const NO_FRAMES_TIMEOUT = 8000; // If no frames for 8s, force-close agent to trigger reconnect
 const agentFirstFrameTime = new Map<string, number>(); // Track when agent connected, to detect no-frame situation
 const h264BlacklistedDevices = new Set<string>(); // Devices known to have broken h264
 
@@ -153,28 +153,27 @@ export function setupScreenRelay(server: HttpServer): WebSocketServer {
         }
       });
 
-      // Force screencap mode: send request_codec BEFORE start_streaming so agent
-      // processes it first and starts in screencap mode (not scrcpy h264)
-      console.log(`Forcing screencap mode for device: ${serial} (skipping unreliable H.264)`);
-      ws.send(JSON.stringify({ type: 'request_codec', codec: 'screencap' }));
+      // Request H.264 mode: agent will use `adb screenrecord --output-format=h264`
+      // for 30 FPS streaming. Falls back to screencap if screenrecord fails.
+      console.log(`Requesting H.264 mode for device: ${serial}`);
+      ws.send(JSON.stringify({ type: 'request_codec', codec: 'h264' }));
 
-      // Start streaming after codec request — agent will use screencap mode
+      // Start streaming after codec request
       ws.send(JSON.stringify({ type: 'start_streaming' }));
 
       // Track connection time to detect no-frame situation
       agentFirstFrameTime.set(serial, Date.now());
 
-      // Watchdog: if no frames arrive within 5 seconds, force-close agent to trigger reconnect
-      // This handles old agents that don't support request_codec
+      // Watchdog: if no frames arrive within 8 seconds, force-close agent to trigger reconnect
+      // This handles old agents that don't support the new H.264 screenrecord mode
       setTimeout(() => {
         const connectTime = agentFirstFrameTime.get(serial);
         const codec = deviceCodec.get(serial) || 'unknown';
-        if (connectTime && codec !== 'screencap' && ws.readyState === WebSocket.OPEN) {
-          // Check if any frames were relayed (frameRelayCount is global, but this is a heuristic)
+        if (connectTime && ws.readyState === WebSocket.OPEN) {
           const cached = lastCachedFrame.get(serial);
           const cacheAge = cached ? Date.now() - connectTime : Infinity;
-          if (cacheAge > 4000) {
-            console.log(`[No-frame watchdog] ${serial}: No screencap frames after 5s, force-closing agent to trigger reconnect`);
+          if (cacheAge > 7000) {
+            console.log(`[No-frame watchdog] ${serial}: No frames after 8s (codec: ${codec}), force-closing agent to trigger reconnect`);
             ws.close(4006, 'No frames received - reconnect required');
           }
         }
@@ -371,10 +370,8 @@ export function setupScreenRelay(server: HttpServer): WebSocketServer {
               deviceCodec.set(ws.deviceSerial!, msg.codec);
               session.codec = msg.codec;
               console.log(`Device ${ws.deviceSerial} codec set to: ${msg.codec}`);
-              // Clear no-frames watchdog when codec is confirmed
-              if (msg.codec === 'screencap') {
-                agentFirstFrameTime.delete(ws.deviceSerial!);
-              }
+              // Clear no-frames watchdog when any codec is confirmed (agent responded)
+              agentFirstFrameTime.delete(ws.deviceSerial!);
             }
           } catch {
             // Not JSON or parse error
