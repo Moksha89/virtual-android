@@ -52,6 +52,8 @@ export default function ScreenViewer({ deviceSerial, deviceResolution, isOnline 
   const mountedRef = useRef(true);
   const jmuxerRef = useRef<JMuxer | null>(null);
   const codecModeRef = useRef<'unknown' | 'h264' | 'screencap'>('unknown');
+  const h264WatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const h264ChunksReceivedRef = useRef(0);
   // Stable tab identifier - survives reconnects within same tab
   const tabIdRef = useRef(Math.random().toString(36).substring(2) + Date.now().toString(36));
 
@@ -218,7 +220,34 @@ export default function ScreenViewer({ deviceSerial, deviceResolution, isOnline 
   useEffect(() => {
     if (codecMode === 'h264' && streaming && videoRef.current && !jmuxerRef.current) {
       initH264Decoder();
+
+      // H.264 watchdog: if video doesn't start playing within 4 seconds, fall back to screencap
+      h264ChunksReceivedRef.current = 0;
+      h264WatchdogRef.current = setTimeout(() => {
+        const video = videoRef.current;
+        if (video && (video.readyState === 0 || video.videoWidth === 0)) {
+          console.warn('H.264 watchdog: video not playing after 4s, falling back to screencap');
+          // Destroy jmuxer
+          if (jmuxerRef.current) {
+            try { jmuxerRef.current.destroy(); } catch {}
+            jmuxerRef.current = null;
+          }
+          // Request screencap from agent
+          if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify({ type: 'request_codec', codec: 'screencap' }));
+          }
+          codecModeRef.current = 'screencap';
+          setCodecMode('screencap');
+        }
+      }, 4000);
     }
+
+    return () => {
+      if (h264WatchdogRef.current) {
+        clearTimeout(h264WatchdogRef.current);
+        h264WatchdogRef.current = null;
+      }
+    };
   }, [codecMode, streaming, initH264Decoder]);
 
   useEffect(() => {
