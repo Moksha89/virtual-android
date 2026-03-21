@@ -198,6 +198,20 @@ export const api = {
   deleteDevice: (deviceId: string) =>
     fetchApi(`/api/devices/${deviceId}`, { method: "DELETE" }),
 
+  // Device Control
+  deviceControl: (deviceId: string, action: string, params: Record<string, unknown> = {}) =>
+    fetchApi<{ success: boolean; stdout?: string; stderr?: string; return_code?: number; image_base64?: string }>(
+      `/api/devices/${deviceId}/control`,
+      {
+        method: "POST",
+        body: JSON.stringify({ action, params }),
+      }
+    ),
+  installGapps: (deviceId: string) =>
+    fetchApi<{ message: string }>(`/api/devices/${deviceId}/install-gapps`, {
+      method: "POST",
+    }),
+
   // Server
   getServerStatus: () => fetchApi<ServerStatus>("/api/server/status"),
   getAndroidVersions: () => fetchApi<AndroidVersion[]>("/api/android-versions"),

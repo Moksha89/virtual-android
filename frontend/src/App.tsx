@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, createContext, useContext } from "react";
+import { useState, useEffect, useCallback, useRef, createContext, useContext } from "react";
 import {
   Smartphone,
   Tablet,
@@ -23,6 +23,21 @@ import {
   UserPlus,
   Eye,
   ChevronDown,
+  Home,
+  Square,
+  Volume2,
+  VolumeX,
+  RotateCcw,
+  Power,
+  Camera,
+  Keyboard,
+  MapPin,
+  Battery,
+  Settings,
+  Play,
+  Type,
+  ArrowLeft,
+  Menu,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -199,15 +214,15 @@ function ServerStatusPanel({ status }: { status: ServerStatus | null }) {
       : 0;
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-4">
       <Card>
-        <CardContent className="pt-4 pb-3">
-          <div className="flex items-center gap-2 mb-2">
-            <Cpu className="w-4 h-4 text-blue-500" />
-            <span className="text-sm font-medium">CPU</span>
+        <CardContent className="pt-3 pb-2 sm:pt-4 sm:pb-3">
+          <div className="flex items-center gap-1.5 sm:gap-2 mb-1 sm:mb-2">
+            <Cpu className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-blue-500" />
+            <span className="text-xs sm:text-sm font-medium">CPU</span>
           </div>
-          <div className="text-2xl font-bold">{status.cpu_cores} Cores</div>
-          <div className="text-xs text-muted-foreground">
+          <div className="text-lg sm:text-2xl font-bold">{status.cpu_cores} Cores</div>
+          <div className="text-[10px] sm:text-xs text-muted-foreground">
             {status.cpu_usage_percent}% usage
           </div>
         </CardContent>
@@ -385,7 +400,45 @@ function LoginPage() {
   );
 }
 
-// --- Screen Viewer Dialog ---
+// --- Device Control Button ---
+function ControlButton({
+  icon: Icon,
+  label,
+  onClick,
+  disabled,
+  className = "",
+  size = "default",
+}: {
+  icon: React.ElementType;
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+  className?: string;
+  size?: "default" | "sm" | "lg";
+}) {
+  const sizeClasses = {
+    sm: "w-8 h-8",
+    default: "w-10 h-10",
+    lg: "w-12 h-12",
+  };
+  const iconSizes = {
+    sm: "w-3.5 h-3.5",
+    default: "w-4 h-4",
+    lg: "w-5 h-5",
+  };
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      title={label}
+      className={`${sizeClasses[size]} flex items-center justify-center rounded-lg border border-gray-200 bg-white hover:bg-gray-50 active:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm ${className}`}
+    >
+      <Icon className={iconSizes[size]} />
+    </button>
+  );
+}
+
+// --- Screen Viewer Dialog with Genymotion-like Controls ---
 function ScreenViewerDialog({
   device,
   open,
@@ -396,31 +449,259 @@ function ScreenViewerDialog({
   onClose: () => void;
 }) {
   const screenUrl = `https://${device.ip}:${device.webrtc_port}`;
+  const [sending, setSending] = useState(false);
+  const [textInput, setTextInput] = useState("");
+  const [showKeyboard, setShowKeyboard] = useState(false);
+  const [orientation, setOrientation] = useState<"portrait" | "landscape">("portrait");
+  const [statusMsg, setStatusMsg] = useState("");
+  const textInputRef = useRef<HTMLInputElement>(null);
+
+  const sendControl = async (action: string, params: Record<string, unknown> = {}) => {
+    setSending(true);
+    setStatusMsg("");
+    try {
+      await api.deviceControl(device.id, action, params);
+    } catch (e) {
+      setStatusMsg(e instanceof Error ? e.message : "Command failed");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const handleKeyEvent = (keycode: string) => sendControl("keyevent", { keycode });
+
+  const handleTextSend = async () => {
+    if (!textInput.trim()) return;
+    await sendControl("text", { text: textInput });
+    setTextInput("");
+  };
+
+  const handleRotation = async () => {
+    const newOrientation = orientation === "portrait" ? "landscape" : "portrait";
+    await sendControl("rotation", { orientation: newOrientation });
+    setOrientation(newOrientation);
+  };
+
+  const handleKeyboardInput = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      handleTextSend();
+    }
+  };
+
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-w-5xl max-h-[90vh] flex flex-col p-0">
-        <DialogHeader className="px-6 pt-4 pb-2 shrink-0">
+      <DialogContent className="max-w-[95vw] md:max-w-6xl max-h-[95vh] flex flex-col p-0 gap-0">
+        {/* Header */}
+        <DialogHeader className="px-3 md:px-4 pt-3 pb-2 shrink-0 border-b border-gray-100">
           <div className="flex items-center justify-between">
-            <div>
-              <DialogTitle>{device.name} - Screen</DialogTitle>
-              <DialogDescription>
-                ADB: {device.ip}:{device.adb_port} | {device.profile_name}
+            <div className="min-w-0">
+              <DialogTitle className="text-sm md:text-base truncate">{device.name}</DialogTitle>
+              <DialogDescription className="text-xs truncate">
+                {device.profile_name} | ADB: {device.ip}:{device.adb_port}
               </DialogDescription>
             </div>
-            <Button variant="ghost" size="sm" onClick={onClose}>
-              <X className="w-4 h-4" />
-            </Button>
+            <div className="flex items-center gap-1 shrink-0">
+              {statusMsg && (
+                <span className="text-xs text-red-500 max-w-[120px] truncate">{statusMsg}</span>
+              )}
+              <Button variant="ghost" size="sm" onClick={onClose} className="h-8 w-8 p-0">
+                <X className="w-4 h-4" />
+              </Button>
+            </div>
           </div>
         </DialogHeader>
-        <div className="flex-1 px-6 pb-6">
-          <iframe
-            src={screenUrl}
-            className="w-full rounded-lg border border-gray-200"
-            style={{ height: "calc(90vh - 100px)" }}
-            allow="autoplay; clipboard-write"
-            title={`${device.name} Screen`}
-          />
+
+        {/* Main content: Screen + Control sidebar */}
+        <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
+          {/* Screen Area */}
+          <div className="flex-1 relative min-h-0">
+            <iframe
+              src={screenUrl}
+              className="w-full h-full border-0"
+              style={{ minHeight: "300px", height: "calc(95vh - 180px)" }}
+              allow="autoplay; clipboard-write"
+              title={`${device.name} Screen`}
+            />
+          </div>
+
+          {/* Control Sidebar - Genymotion style */}
+          <div className="w-full md:w-14 shrink-0 bg-gray-50 border-t md:border-t-0 md:border-l border-gray-200">
+            {/* Mobile: horizontal strip, Desktop: vertical strip */}
+            <div className="flex md:flex-col items-center gap-1.5 p-2 overflow-x-auto md:overflow-x-visible">
+              {/* Navigation */}
+              <div className="flex md:flex-col gap-1">
+                <ControlButton
+                  icon={ArrowLeft}
+                  label="Back"
+                  onClick={() => handleKeyEvent("KEYCODE_BACK")}
+                  disabled={sending}
+                  size="sm"
+                />
+                <ControlButton
+                  icon={Home}
+                  label="Home"
+                  onClick={() => handleKeyEvent("KEYCODE_HOME")}
+                  disabled={sending}
+                  size="sm"
+                />
+                <ControlButton
+                  icon={Square}
+                  label="Recent Apps"
+                  onClick={() => handleKeyEvent("KEYCODE_APP_SWITCH")}
+                  disabled={sending}
+                  size="sm"
+                />
+              </div>
+
+              <div className="w-px h-6 md:w-6 md:h-px bg-gray-300 shrink-0" />
+
+              {/* Volume */}
+              <div className="flex md:flex-col gap-1">
+                <ControlButton
+                  icon={Volume2}
+                  label="Volume Up"
+                  onClick={() => handleKeyEvent("KEYCODE_VOLUME_UP")}
+                  disabled={sending}
+                  size="sm"
+                />
+                <ControlButton
+                  icon={VolumeX}
+                  label="Volume Down"
+                  onClick={() => handleKeyEvent("KEYCODE_VOLUME_DOWN")}
+                  disabled={sending}
+                  size="sm"
+                />
+              </div>
+
+              <div className="w-px h-6 md:w-6 md:h-px bg-gray-300 shrink-0" />
+
+              {/* Device controls */}
+              <div className="flex md:flex-col gap-1">
+                <ControlButton
+                  icon={Power}
+                  label="Power"
+                  onClick={() => handleKeyEvent("KEYCODE_POWER")}
+                  disabled={sending}
+                  size="sm"
+                />
+                <ControlButton
+                  icon={RotateCcw}
+                  label={`Rotate (${orientation})`}
+                  onClick={handleRotation}
+                  disabled={sending}
+                  size="sm"
+                />
+                <ControlButton
+                  icon={Camera}
+                  label="Screenshot"
+                  onClick={() => sendControl("screenshot")}
+                  disabled={sending}
+                  size="sm"
+                />
+              </div>
+
+              <div className="w-px h-6 md:w-6 md:h-px bg-gray-300 shrink-0" />
+
+              {/* Input & Apps */}
+              <div className="flex md:flex-col gap-1">
+                <ControlButton
+                  icon={Keyboard}
+                  label="Toggle Keyboard"
+                  onClick={() => {
+                    setShowKeyboard(!showKeyboard);
+                    if (!showKeyboard) {
+                      setTimeout(() => textInputRef.current?.focus(), 100);
+                    }
+                  }}
+                  disabled={sending}
+                  size="sm"
+                  className={showKeyboard ? "bg-blue-50 border-blue-300" : ""}
+                />
+                <ControlButton
+                  icon={Settings}
+                  label="Open Settings"
+                  onClick={() => sendControl("open_settings")}
+                  disabled={sending}
+                  size="sm"
+                />
+                <ControlButton
+                  icon={Play}
+                  label="Open Play Store"
+                  onClick={() => sendControl("open_playstore")}
+                  disabled={sending}
+                  size="sm"
+                />
+              </div>
+
+              <div className="w-px h-6 md:w-6 md:h-px bg-gray-300 shrink-0" />
+
+              {/* Advanced controls */}
+              <div className="flex md:flex-col gap-1">
+                <ControlButton
+                  icon={MapPin}
+                  label="Set GPS Location"
+                  onClick={() => sendControl("gps", { latitude: 37.4220, longitude: -122.0841 })}
+                  disabled={sending}
+                  size="sm"
+                />
+                <ControlButton
+                  icon={Battery}
+                  label="Battery 50%"
+                  onClick={() => sendControl("battery", { level: 50 })}
+                  disabled={sending}
+                  size="sm"
+                />
+                <ControlButton
+                  icon={Menu}
+                  label="Menu"
+                  onClick={() => handleKeyEvent("KEYCODE_MENU")}
+                  disabled={sending}
+                  size="sm"
+                />
+              </div>
+            </div>
+          </div>
         </div>
+
+        {/* Keyboard input bar */}
+        {showKeyboard && (
+          <div className="px-2 sm:px-3 py-2 border-t border-gray-200 bg-white shrink-0 space-y-2">
+            <div className="flex gap-1.5 sm:gap-2">
+              <Input
+                ref={textInputRef}
+                value={textInput}
+                onChange={(e) => setTextInput(e.target.value)}
+                onKeyDown={handleKeyboardInput}
+                placeholder="Type text to send..."
+                className="flex-1 text-sm h-8 sm:h-9"
+                autoFocus
+              />
+              <Button size="sm" onClick={handleTextSend} disabled={sending || !textInput.trim()} className="h-8 sm:h-9 px-2 sm:px-3">
+                <Type className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> <span className="hidden sm:inline ml-1">Send</span>
+              </Button>
+            </div>
+            <div className="flex gap-1.5">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => handleKeyEvent("KEYCODE_SEARCH")}
+                disabled={sending}
+                className="flex-1 h-7 text-xs"
+              >
+                <Keyboard className="w-3 h-3 mr-1" /> Show Keyboard
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => handleKeyEvent("KEYCODE_BACK")}
+                disabled={sending}
+                className="flex-1 h-7 text-xs"
+              >
+                Hide Keyboard
+              </Button>
+            </div>
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   );
@@ -652,8 +933,8 @@ function AdminPanel({
         </CardHeader>
         <CardContent className="space-y-4">
           {showCreateUser && (
-            <div className="p-4 rounded-lg bg-gray-50 border border-gray-200 space-y-3">
-              <div className="grid grid-cols-3 gap-3">
+            <div className="p-3 sm:p-4 rounded-lg bg-gray-50 border border-gray-200 space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3">
                 <Input
                   placeholder="Username"
                   value={newUsername}
@@ -1066,19 +1347,19 @@ function CreateDeviceDialog({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button size="lg" className="gap-2">
-          <Plus className="w-5 h-5" /> Create Device
+        <Button size="sm" className="gap-1.5 sm:gap-2 sm:h-10 sm:px-4">
+          <Plus className="w-4 h-4 sm:w-5 sm:h-5" /> <span className="hidden sm:inline">Create</span> Device
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col p-0">
-        <DialogHeader className="px-6 pt-6 pb-2 shrink-0">
-          <DialogTitle className="text-xl">Create New Device</DialogTitle>
+      <DialogContent className="max-w-[95vw] sm:max-w-2xl max-h-[90vh] flex flex-col p-0">
+        <DialogHeader className="px-4 sm:px-6 pt-4 sm:pt-6 pb-2 shrink-0">
+          <DialogTitle className="text-lg sm:text-xl">Create New Device</DialogTitle>
           <DialogDescription>
             Configure and launch a new Cuttlefish Android virtual device.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex-1 overflow-y-auto px-6 space-y-6 py-4">
+        <div className="flex-1 overflow-y-auto px-4 sm:px-6 space-y-4 sm:space-y-6 py-3 sm:py-4">
           <div className="space-y-2">
             <Label htmlFor="device-name">Device Name</Label>
             <Input
@@ -1089,7 +1370,7 @@ function CreateDeviceDialog({
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
             <div className="space-y-2">
               <Label>Android Version</Label>
               <Select value={androidVersion} onValueChange={setAndroidVersion}>
@@ -1245,7 +1526,7 @@ function CreateDeviceDialog({
           )}
         </div>
 
-        <DialogFooter className="px-6 py-4 border-t border-gray-200 shrink-0">
+        <DialogFooter className="px-4 sm:px-6 py-3 sm:py-4 border-t border-gray-200 shrink-0 flex-col-reverse sm:flex-row gap-2 sm:gap-0">
           <DialogClose asChild>
             <Button variant="outline">Cancel</Button>
           </DialogClose>
@@ -1413,24 +1694,24 @@ function Dashboard() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <header className="border-b border-gray-200 bg-white">
-        <div className="container mx-auto px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-blue-600 text-white">
-                <Server className="w-6 h-6" />
+      <header className="border-b border-gray-200 bg-white sticky top-0 z-40">
+        <div className="container mx-auto px-3 sm:px-6 py-3 sm:py-4">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+              <div className="p-1.5 sm:p-2 rounded-lg bg-blue-600 text-white shrink-0">
+                <Server className="w-5 h-5 sm:w-6 sm:h-6" />
               </div>
-              <div>
-                <h1 className="text-xl font-bold text-gray-900">
-                  Cuttlefish Device Manager
+              <div className="min-w-0">
+                <h1 className="text-base sm:text-xl font-bold text-gray-900 truncate">
+                  Cuttlefish Manager
                 </h1>
-                <p className="text-sm text-gray-500">
+                <p className="text-xs sm:text-sm text-gray-500 hidden sm:block">
                   Android Virtual Device Dashboard
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-3">
-              <div className="text-right hidden md:block">
+            <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
+              <div className="text-right hidden lg:block">
                 <div className="text-sm font-medium text-gray-700">
                   {runningCount} of {totalCount} devices running
                 </div>
@@ -1443,26 +1724,29 @@ function Dashboard() {
                 size="sm"
                 onClick={refreshData}
                 disabled={refreshing}
+                className="h-8 w-8 sm:h-9 sm:w-9 p-0"
               >
                 <RefreshCw
                   className={`w-4 h-4 ${refreshing ? "animate-spin" : ""}`}
                 />
               </Button>
               {isAdmin && (
-                <CreateDeviceDialog
-                  profiles={profiles}
-                  versions={versions}
-                  osTypes={osTypes}
-                  onCreated={loadData}
-                />
+                <div className="hidden sm:block">
+                  <CreateDeviceDialog
+                    profiles={profiles}
+                    versions={versions}
+                    osTypes={osTypes}
+                    onCreated={loadData}
+                  />
+                </div>
               )}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="sm" className="gap-2">
-                    <div className="w-6 h-6 rounded-full bg-blue-600 text-white flex items-center justify-center text-xs font-bold">
+                  <Button variant="outline" size="sm" className="gap-1 sm:gap-2 h-8 sm:h-9 px-2 sm:px-3">
+                    <div className="w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-blue-600 text-white flex items-center justify-center text-xs font-bold">
                       {auth.user?.username?.[0]?.toUpperCase() || "U"}
                     </div>
-                    <span className="hidden md:inline">
+                    <span className="hidden md:inline text-sm">
                       {auth.user?.username}
                     </span>
                     <ChevronDown className="w-3 h-3" />
@@ -1486,7 +1770,7 @@ function Dashboard() {
         </div>
       </header>
 
-      <main className="container mx-auto px-6 py-6 space-y-6">
+      <main className="container mx-auto px-3 sm:px-6 py-4 sm:py-6 space-y-4 sm:space-y-6">
         <ServerStatusPanel status={serverStatus} />
 
         <Tabs defaultValue="devices">

@@ -23,6 +23,7 @@ from app.models import (
     UserResponse,
     UpdateUserRequest,
     AssignDeviceRequest,
+    DeviceControlRequest,
 )
 from app.profiles import get_all_profiles, get_profile_by_id, PREDEFINED_PROFILES
 from app.ssh_manager import (
@@ -33,6 +34,9 @@ from app.ssh_manager import (
     launch_device,
     stop_device,
     get_next_instance_id,
+    install_gapps,
+    run_adb_command,
+    take_screenshot_base64,
     PUBLIC_IP,
 )
 from app.auth import (
@@ -583,6 +587,11 @@ async def create_device(req: CreateDeviceRequest):
         raise HTTPException(status_code=500, detail=message)
 
     adb_port = 6520 + instance_id - 1
+
+    # Auto-install GApps in background after device launches
+    import asyncio
+    asyncio.create_task(_install_gapps_background(instance_id, adb_port))
+
     return {
         "id": f"cvd-{instance_id}",
         "name": req.name,
@@ -592,6 +601,36 @@ async def create_device(req: CreateDeviceRequest):
         "adb_serial": f"0.0.0.0:{adb_port}",
         "message": message,
     }
+
+
+async def _install_gapps_background(instance_id: int, adb_port: int):
+    """Background task to install GApps after device boots."""
+    import asyncio
+    serial = f"0.0.0.0:{adb_port}"
+    # Wait for device to boot (up to 3 minutes)
+    for _ in range(36):
+        await asyncio.sleep(5)
+        try:
+            props = await get_device_properties(serial)
+            if props.get("boot_completed"):
+                break
+        except Exception:
+            pass
+    else:
+        print(f"[GApps] Device {instance_id} did not boot in time, skipping GApps install")
+        return
+
+    # Give it a few more seconds after boot
+    await asyncio.sleep(10)
+
+    try:
+        success, msg = await install_gapps(serial)
+        if success:
+            print(f"[GApps] Successfully installed GApps on device {instance_id}")
+        else:
+            print(f"[GApps] Failed to install GApps on device {instance_id}: {msg}")
+    except Exception as e:
+        print(f"[GApps] Error installing GApps on device {instance_id}: {e}")
 
 
 @app.put("/api/devices/{device_id}")
@@ -682,6 +721,119 @@ async def get_device(device_id: str):
         "adb_port": adb_port,
         "ip": PUBLIC_IP,
     }
+
+
+# --- Device Control ---
+
+
+@app.post("/api/devices/{device_id}/control")
+async def device_control(device_id: str, req: DeviceControlRequest):
+    """Send a control command to a device (keyevent, text input, tap, swipe, etc.)."""
+    if not device_id.startswith("cvd-"):
+        raise HTTPException(status_code=400, detail="Invalid device ID format")
+    try:
+        instance_id = int(device_id.replace("cvd-", ""))
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid device ID")
+
+    adb_port = 6520 + instance_id - 1
+    serial = f"0.0.0.0:{adb_port}"
+
+    action = req.action
+    params = req.params
+
+    if action == "keyevent":
+        keycode = params.get("keycode", "")
+        if not keycode:
+            raise HTTPException(status_code=400, detail="keycode required")
+        cmd = f"input keyevent {keycode}"
+    elif action == "text":
+        text = params.get("text", "")
+        if not text:
+            raise HTTPException(status_code=400, detail="text required")
+        # Escape special chars for adb shell
+        escaped = text.replace("'", "'\"'\"'")
+        cmd = f"input text '{escaped}'"
+    elif action == "tap":
+        x = params.get("x", 0)
+        y = params.get("y", 0)
+        cmd = f"input tap {x} {y}"
+    elif action == "swipe":
+        x1 = params.get("x1", 0)
+        y1 = params.get("y1", 0)
+        x2 = params.get("x2", 0)
+        y2 = params.get("y2", 0)
+        duration = params.get("duration", 300)
+        cmd = f"input swipe {x1} {y1} {x2} {y2} {duration}"
+    elif action == "shell":
+        shell_cmd = params.get("command", "")
+        if not shell_cmd:
+            raise HTTPException(status_code=400, detail="command required")
+        cmd = shell_cmd
+    elif action == "rotation":
+        orientation = params.get("orientation", "portrait")
+        if orientation == "landscape":
+            cmd = "settings put system accelerometer_rotation 0 && settings put system user_rotation 1"
+        else:
+            cmd = "settings put system accelerometer_rotation 0 && settings put system user_rotation 0"
+    elif action == "show_keyboard":
+        # Trigger soft keyboard by focusing on a text field
+        cmd = "input keyevent KEYCODE_SEARCH"
+    elif action == "hide_keyboard":
+        cmd = "input keyevent KEYCODE_BACK"
+    elif action == "open_settings":
+        cmd = "am start -a android.settings.SETTINGS"
+    elif action == "open_playstore":
+        cmd = "am start -a android.intent.action.MAIN -n com.android.vending/.AssetBrowserActivity 2>/dev/null || am start -a android.intent.action.MAIN -c android.intent.category.APP_MARKET"
+    elif action == "screenshot":
+        result = await take_screenshot_base64(serial)
+        if result:
+            return {"success": True, "image_base64": result}
+        raise HTTPException(status_code=500, detail="Failed to take screenshot")
+    elif action == "battery":
+        level = params.get("level", 100)
+        cmd = f"dumpsys battery set level {level}"
+    elif action == "gps":
+        lat = params.get("latitude", 37.4220)
+        lng = params.get("longitude", -122.0841)
+        cmd = f"am broadcast -a com.android.internal.location.MOCK_LOCATION_PROVIDER --ef latitude {lat} --ef longitude {lng} 2>/dev/null; echo 'GPS set to {lat},{lng}'"
+    elif action == "network":
+        mode = params.get("mode", "on")
+        if mode == "off":
+            cmd = "svc wifi disable && svc data disable"
+        elif mode == "airplane":
+            cmd = "settings put global airplane_mode_on 1 && am broadcast -a android.intent.action.AIRPLANE_MODE"
+        else:
+            cmd = "svc wifi enable && svc data enable && settings put global airplane_mode_on 0"
+    else:
+        raise HTTPException(status_code=400, detail=f"Unknown action: {action}")
+
+    stdout, stderr, rc = await run_adb_command(serial, cmd)
+    return {
+        "success": rc == 0,
+        "stdout": stdout,
+        "stderr": stderr,
+        "return_code": rc,
+    }
+
+
+@app.post("/api/devices/{device_id}/install-gapps")
+async def install_gapps_endpoint(device_id: str):
+    """Manually trigger GApps installation on a device."""
+    if not device_id.startswith("cvd-"):
+        raise HTTPException(status_code=400, detail="Invalid device ID format")
+    try:
+        instance_id = int(device_id.replace("cvd-", ""))
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid device ID")
+
+    adb_port = 6520 + instance_id - 1
+    serial = f"0.0.0.0:{adb_port}"
+
+    success, message = await install_gapps(serial)
+    if not success:
+        raise HTTPException(status_code=500, detail=message)
+    return {"message": message}
 
 
 # --- Server Status ---

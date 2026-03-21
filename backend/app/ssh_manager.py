@@ -352,3 +352,124 @@ async def get_next_instance_id() -> int:
         return 1
     max_id = max(i["instance_id"] for i in instances)
     return max_id + 1
+
+
+async def run_adb_command(serial: str, command: str, timeout: float = 15.0) -> tuple[str, str, int]:
+    """Run an ADB shell command on a device. Returns (stdout, stderr, returncode)."""
+    full_cmd = f"adb -s {serial} shell '{command}'"
+    return await run_ssh_command(full_cmd, timeout=timeout)
+
+
+async def take_screenshot_base64(serial: str) -> str | None:
+    """Take a screenshot and return it as base64-encoded PNG."""
+    cmd = f"""
+adb -s {serial} shell screencap -p /sdcard/screenshot.png 2>/dev/null && \
+adb -s {serial} pull /sdcard/screenshot.png /tmp/device_screenshot.png 2>/dev/null && \
+base64 -w 0 /tmp/device_screenshot.png 2>/dev/null && \
+rm -f /tmp/device_screenshot.png
+"""
+    stdout, stderr, rc = await run_ssh_command(cmd, timeout=15.0)
+    if rc == 0 and stdout.strip():
+        return stdout.strip()
+    return None
+
+
+async def install_gapps(serial: str) -> tuple[bool, str]:
+    """Install Google Apps (GApps) on a Cuttlefish device.
+
+    Uses MindTheGapps for x86_64 Android 14.
+    """
+    gapps_script = f"""
+set -e
+
+SERIAL="{serial}"
+GAPPS_DIR="/home/administrator/gapps"
+GAPPS_ZIP="$GAPPS_DIR/MindTheGapps-14.0.0-x86_64.zip"
+
+# Check if GApps zip exists, download if not
+if [ ! -f "$GAPPS_ZIP" ]; then
+    mkdir -p "$GAPPS_DIR"
+    echo "GAPPS_STATUS:downloading"
+    wget -q "https://github.com/nicholaschum/mindthegapps/releases/download/14.0.0/MindTheGapps-14.0.0-x86_64-20231025_200931.zip" -O "$GAPPS_ZIP" 2>/dev/null || {{
+        # Try alternate URL
+        wget -q "https://androidfilehost.com/?" -O "$GAPPS_ZIP" 2>/dev/null || true
+    }}
+fi
+
+if [ ! -f "$GAPPS_ZIP" ]; then
+    echo "GAPPS_STATUS:no_zip"
+    exit 1
+fi
+
+# Extract if not already extracted
+if [ ! -d "$GAPPS_DIR/system" ]; then
+    cd "$GAPPS_DIR"
+    unzip -o "$GAPPS_ZIP" 2>/dev/null || true
+fi
+
+# Check if device is available
+adb -s $SERIAL wait-for-device 2>/dev/null
+BOOT=$(adb -s $SERIAL shell getprop sys.boot_completed 2>/dev/null | tr -d '\\r')
+if [ "$BOOT" != "1" ]; then
+    echo "GAPPS_STATUS:not_booted"
+    exit 1
+fi
+
+# Check if GApps already installed
+GPLAY=$(adb -s $SERIAL shell pm list packages 2>/dev/null | grep -c "com.android.vending" || true)
+if [ "$GPLAY" -gt 0 ]; then
+    echo "GAPPS_STATUS:already_installed"
+    exit 0
+fi
+
+# Remount system as writable
+adb -s $SERIAL root 2>/dev/null
+sleep 2
+adb -s $SERIAL remount 2>/dev/null
+sleep 1
+
+# Push GApps files
+if [ -d "$GAPPS_DIR/system/product" ]; then
+    adb -s $SERIAL push "$GAPPS_DIR/system/product/." /system/product/ 2>/dev/null
+fi
+if [ -d "$GAPPS_DIR/system/system_ext" ]; then
+    adb -s $SERIAL push "$GAPPS_DIR/system/system_ext/." /system/system_ext/ 2>/dev/null
+fi
+if [ -d "$GAPPS_DIR/system/priv-app" ]; then
+    adb -s $SERIAL push "$GAPPS_DIR/system/priv-app/." /system/priv-app/ 2>/dev/null
+fi
+if [ -d "$GAPPS_DIR/system/app" ]; then
+    adb -s $SERIAL push "$GAPPS_DIR/system/app/." /system/app/ 2>/dev/null
+fi
+if [ -d "$GAPPS_DIR/system/framework" ]; then
+    adb -s $SERIAL push "$GAPPS_DIR/system/framework/." /system/framework/ 2>/dev/null
+fi
+if [ -d "$GAPPS_DIR/system/etc" ]; then
+    adb -s $SERIAL push "$GAPPS_DIR/system/etc/." /system/etc/ 2>/dev/null
+fi
+
+# Disable privapp permission enforcement
+adb -s $SERIAL shell "sed -i 's/ro.control_privapp_permissions=enforce/ro.control_privapp_permissions=disable/' /vendor/build.prop" 2>/dev/null || true
+
+# Set proper permissions
+adb -s $SERIAL shell "chmod -R 755 /system/product/priv-app/ /system/product/app/ /system/system_ext/priv-app/ 2>/dev/null" || true
+
+# Reboot to apply
+adb -s $SERIAL reboot 2>/dev/null
+echo "GAPPS_STATUS:installed_rebooting"
+"""
+    stdout, stderr, rc = await run_ssh_command(gapps_script, timeout=180.0)
+    output = stdout + stderr
+
+    if "GAPPS_STATUS:already_installed" in output:
+        return True, "GApps already installed"
+    elif "GAPPS_STATUS:installed_rebooting" in output:
+        return True, "GApps installed, device rebooting"
+    elif "GAPPS_STATUS:no_zip" in output:
+        return False, "GApps zip not found. Please download MindTheGapps manually."
+    elif "GAPPS_STATUS:not_booted" in output:
+        return False, "Device not fully booted yet"
+    elif "GAPPS_STATUS:downloading" in output and "GAPPS_STATUS:installed_rebooting" in output:
+        return True, "GApps downloaded and installed, device rebooting"
+    else:
+        return False, f"GApps installation failed: {output[:500]}"
