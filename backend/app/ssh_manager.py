@@ -205,11 +205,19 @@ echo "STOP_ALL:done"
 
 
 async def _setup_device_networking() -> None:
-    """Set up bridge networking and NAT so Cuttlefish devices have internet access.
+    """Set up bridge networking, NAT, WiFi, and DNS so Cuttlefish devices have
+    full internet access on both mobile data and WiFi.
 
     Cuttlefish creates tap interfaces (cvd-mtap-XX) for mobile data but does not
-    automatically set up bridges or NAT. This creates the mobile bridge, adds the
-    tap to it, assigns gateway IPs, and configures NAT masquerading.
+    automatically set up bridges or NAT. The WiFi path goes through an OpenWrt VM
+    whose WAN is isolated inside crosvm, so WiFi traffic must be redirected through
+    the mobile bridge. This function:
+    1. Creates the mobile bridge with gateway IPs and NAT masquerading
+    2. Starts a dnsmasq DNS proxy on the bridge
+    3. Enables WiFi and connects to VirtWifi
+    4. Redirects the WiFi routing table through the mobile bridge
+    5. DNATs all DNS queries to the working dnsmasq
+    6. MASQUERADEs WiFi-sourced traffic so the host can route replies
     """
     cmd = """
 # Enable IP forwarding
@@ -244,6 +252,11 @@ sudo ip addr add 10.0.2.2/24 dev cvd-mbr-01 2>/dev/null || true
 # Enable proxy ARP on the bridge
 echo 1 | sudo tee /proc/sys/net/ipv4/conf/cvd-mbr-01/proxy_arp > /dev/null
 
+# Assign IP on ethernet tap for OpenWrt WAN (if exists)
+if ip link show cvd-etap-01 &>/dev/null; then
+    sudo ip addr add 192.168.96.1/24 dev cvd-etap-01 2>/dev/null || true
+fi
+
 # Detect primary outbound interface
 PRIMARY_IF=$(ip route show default | awk '{print $5}' | head -1)
 
@@ -257,19 +270,55 @@ sudo iptables -C FORWARD -i cvd-mbr-01 -o $PRIMARY_IF -j ACCEPT 2>/dev/null || \
 sudo iptables -C FORWARD -i $PRIMARY_IF -o cvd-mbr-01 -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null || \
     sudo iptables -A FORWARD -i $PRIMARY_IF -o cvd-mbr-01 -m state --state RELATED,ESTABLISHED -j ACCEPT
 
-# Configure DNS on the device via ADB
+# Start dnsmasq DNS proxy on the mobile bridge (if not already running)
+if ! pgrep -f 'dnsmasq.*cvd-mbr-01' > /dev/null; then
+    sudo killall dnsmasq 2>/dev/null || true
+    sudo dnsmasq --interface=cvd-mbr-01 --bind-interfaces --listen-address=10.0.2.2 \
+        --no-dhcp-interface=cvd-mbr-01 --server=8.8.8.8 --server=8.8.4.4 \
+        --pid-file=/var/run/dnsmasq-cvd.pid --log-facility=/var/log/dnsmasq-cvd.log 2>/dev/null
+fi
+
+# Configure each connected device
 for serial in $(adb devices | grep -oP '\S+(?=\s+device$)'); do
     adb -s $serial root 2>/dev/null || true
     sleep 1
-    adb -s $serial shell 'ip route add default via 10.0.2.1 dev buried_eth0 2>/dev/null || true'
+
+    # Set DNS properties
     adb -s $serial shell 'setprop net.dns1 8.8.8.8'
     adb -s $serial shell 'setprop net.dns2 8.8.4.4'
+
+    # Disable captive portal detection (prevents Android marking network invalid)
+    adb -s $serial shell 'settings put global captive_portal_mode 0'
+    adb -s $serial shell 'settings put global private_dns_mode off'
+
+    # Enable WiFi and connect to VirtWifi
+    adb -s $serial shell 'svc wifi enable'
+    sleep 3
+    adb -s $serial shell 'cmd wifi connect-network VirtWifi open' 2>/dev/null || true
+    sleep 3
+
+    # Redirect WiFi routing table default route through mobile bridge
+    # (OpenWrt VM's WAN is isolated inside crosvm, can't reach internet)
+    adb -s $serial shell 'ip route replace default via 10.0.2.2 dev buried_eth0 table wlan0' 2>/dev/null || true
+
+    # DNAT all DNS queries to our working dnsmasq on the mobile bridge
+    adb -s $serial shell 'iptables -t nat -C OUTPUT -p udp --dport 53 ! -d 10.0.2.2 -j DNAT --to-destination 10.0.2.2:53 2>/dev/null' || \
+        adb -s $serial shell 'iptables -t nat -A OUTPUT -p udp --dport 53 ! -d 10.0.2.2 -j DNAT --to-destination 10.0.2.2:53'
+    adb -s $serial shell 'iptables -t nat -C OUTPUT -p tcp --dport 53 ! -d 10.0.2.2 -j DNAT --to-destination 10.0.2.2:53 2>/dev/null' || \
+        adb -s $serial shell 'iptables -t nat -A OUTPUT -p tcp --dport 53 ! -d 10.0.2.2 -j DNAT --to-destination 10.0.2.2:53'
+
+    # MASQUERADE WiFi-sourced traffic going through mobile bridge
+    # (fixes source IP so host can route replies back)
+    adb -s $serial shell 'iptables -t nat -C POSTROUTING -o buried_eth0 -s 192.168.99.0/25 -j MASQUERADE 2>/dev/null' || \
+        adb -s $serial shell 'iptables -t nat -A POSTROUTING -o buried_eth0 -s 192.168.99.0/25 -j MASQUERADE'
+    adb -s $serial shell 'iptables -t nat -C POSTROUTING -o buried_eth0 ! -s 10.0.2.0/24 -j MASQUERADE 2>/dev/null' || \
+        adb -s $serial shell 'iptables -t nat -A POSTROUTING -o buried_eth0 ! -s 10.0.2.0/24 -j MASQUERADE'
 done
 
 echo "NETSETUP:done"
 """
     try:
-        await run_ssh_command(cmd, timeout=60.0)
+        await run_ssh_command(cmd, timeout=120.0)
     except Exception:
         pass  # Best-effort; don't fail device launch if networking setup fails
 
