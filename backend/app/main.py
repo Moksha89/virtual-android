@@ -61,6 +61,17 @@ from app.ssh_manager import (
     delete_snapshot,
     create_adb_shell_session,
     create_logcat_session,
+    get_device_health,
+    set_gps_location,
+    send_sms,
+    make_call,
+    end_call,
+    set_device_locale,
+    get_device_locale,
+    get_device_processes,
+    get_webview_debug_url,
+    take_screenshot_for_comparison,
+    run_monkey_test,
 )
 from app.auth import (
     hash_password,
@@ -1466,6 +1477,461 @@ async def ws_logcat(websocket: WebSocket, device_id: str):
     finally:
         if conn:
             conn.close()
+
+
+# --- Device Health Monitoring ---
+
+
+@app.get("/api/devices/{device_id}/health")
+async def device_health(device_id: str):
+    serial = _get_serial(device_id)
+    health = await get_device_health(serial)
+    return health
+
+
+@app.get("/api/devices/{device_id}/processes")
+async def device_processes(device_id: str):
+    serial = _get_serial(device_id)
+    procs = await get_device_processes(serial)
+    return {"processes": procs}
+
+
+# --- GPS Location Simulation ---
+
+
+@app.post("/api/devices/{device_id}/gps")
+async def device_set_gps(device_id: str, body: dict):
+    serial = _get_serial(device_id)
+    lat = body.get("latitude", 0.0)
+    lng = body.get("longitude", 0.0)
+    alt = body.get("altitude", 0.0)
+    ok = await set_gps_location(serial, lat, lng, alt)
+    return {"success": ok, "message": "GPS location set" if ok else "Failed to set GPS"}
+
+
+@app.get("/api/gps-presets")
+async def gps_presets():
+    return {"presets": [
+        {"name": "New York City", "latitude": 40.7128, "longitude": -74.0060},
+        {"name": "San Francisco", "latitude": 37.7749, "longitude": -122.4194},
+        {"name": "London", "latitude": 51.5074, "longitude": -0.1278},
+        {"name": "Tokyo", "latitude": 35.6762, "longitude": 139.6503},
+        {"name": "Paris", "latitude": 48.8566, "longitude": 2.3522},
+        {"name": "Sydney", "latitude": -33.8688, "longitude": 151.2093},
+        {"name": "Dubai", "latitude": 25.2048, "longitude": 55.2708},
+        {"name": "Mumbai", "latitude": 19.0760, "longitude": 72.8777},
+        {"name": "Berlin", "latitude": 52.5200, "longitude": 13.4050},
+        {"name": "Seoul", "latitude": 37.5665, "longitude": 126.9780},
+    ]}
+
+
+# --- SMS/Call Simulation ---
+
+
+@app.post("/api/devices/{device_id}/sms")
+async def device_send_sms(device_id: str, body: dict):
+    serial = _get_serial(device_id)
+    phone = body.get("phone_number", "+15551234567")
+    message = body.get("message", "Test SMS")
+    ok = await send_sms(serial, phone, message)
+    return {"success": ok, "message": "SMS sent" if ok else "Failed to send SMS"}
+
+
+@app.post("/api/devices/{device_id}/call")
+async def device_make_call(device_id: str, body: dict):
+    serial = _get_serial(device_id)
+    phone = body.get("phone_number", "+15551234567")
+    action = body.get("action", "call")
+    if action == "call":
+        ok = await make_call(serial, phone)
+        return {"success": ok, "message": "Call initiated" if ok else "Failed"}
+    elif action == "end":
+        ok = await end_call(serial, phone)
+        return {"success": ok, "message": "Call ended" if ok else "Failed"}
+    return {"success": False, "message": "Unknown action"}
+
+
+# --- Locale Switching ---
+
+
+@app.get("/api/devices/{device_id}/locale")
+async def device_get_locale(device_id: str):
+    serial = _get_serial(device_id)
+    locale = await get_device_locale(serial)
+    return {"locale": locale}
+
+
+@app.post("/api/devices/{device_id}/locale")
+async def device_set_locale(device_id: str, body: dict):
+    serial = _get_serial(device_id)
+    locale = body.get("locale", "en-US")
+    ok = await set_device_locale(serial, locale)
+    return {"success": ok, "message": f"Locale set to {locale}" if ok else "Failed"}
+
+
+@app.get("/api/locales")
+async def list_locales():
+    return {"locales": [
+        {"code": "en-US", "name": "English (US)", "flag": "us"},
+        {"code": "en-GB", "name": "English (UK)", "flag": "gb"},
+        {"code": "fr-FR", "name": "French", "flag": "fr"},
+        {"code": "de-DE", "name": "German", "flag": "de"},
+        {"code": "es-ES", "name": "Spanish", "flag": "es"},
+        {"code": "it-IT", "name": "Italian", "flag": "it"},
+        {"code": "pt-BR", "name": "Portuguese (Brazil)", "flag": "br"},
+        {"code": "ja-JP", "name": "Japanese", "flag": "jp"},
+        {"code": "ko-KR", "name": "Korean", "flag": "kr"},
+        {"code": "zh-CN", "name": "Chinese (Simplified)", "flag": "cn"},
+        {"code": "zh-TW", "name": "Chinese (Traditional)", "flag": "tw"},
+        {"code": "ar-SA", "name": "Arabic", "flag": "sa"},
+        {"code": "hi-IN", "name": "Hindi", "flag": "in"},
+        {"code": "ru-RU", "name": "Russian", "flag": "ru"},
+        {"code": "tr-TR", "name": "Turkish", "flag": "tr"},
+        {"code": "th-TH", "name": "Thai", "flag": "th"},
+        {"code": "vi-VN", "name": "Vietnamese", "flag": "vn"},
+        {"code": "nl-NL", "name": "Dutch", "flag": "nl"},
+        {"code": "sv-SE", "name": "Swedish", "flag": "se"},
+        {"code": "pl-PL", "name": "Polish", "flag": "pl"},
+    ]}
+
+
+# --- Device Pools & Tags ---
+
+
+@app.get("/api/pools")
+async def list_pools():
+    db = await get_db()
+    try:
+        cursor = await db.execute("SELECT * FROM device_pools ORDER BY name")
+        pools = [dict(r) for r in await cursor.fetchall()]
+        for pool in pools:
+            cursor = await db.execute("SELECT device_id FROM device_pool_members WHERE pool_id = ?", (pool["id"],))
+            pool["devices"] = [r[0] for r in await cursor.fetchall()]
+        return {"pools": pools}
+    finally:
+        await db.close()
+
+
+@app.post("/api/pools")
+async def create_pool(body: dict):
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "INSERT INTO device_pools (name, description, color) VALUES (?, ?, ?)",
+            (body.get("name", ""), body.get("description", ""), body.get("color", "#3b82f6")),
+        )
+        await db.commit()
+        return {"id": cursor.lastrowid, "message": "Pool created"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        await db.close()
+
+
+@app.delete("/api/pools/{pool_id}")
+async def delete_pool(pool_id: int):
+    db = await get_db()
+    try:
+        await db.execute("DELETE FROM device_pools WHERE id = ?", (pool_id,))
+        await db.commit()
+        return {"message": "Pool deleted"}
+    finally:
+        await db.close()
+
+
+@app.post("/api/pools/{pool_id}/devices")
+async def add_device_to_pool(pool_id: int, body: dict):
+    db = await get_db()
+    try:
+        await db.execute(
+            "INSERT OR IGNORE INTO device_pool_members (pool_id, device_id) VALUES (?, ?)",
+            (pool_id, body.get("device_id", "")),
+        )
+        await db.commit()
+        return {"message": "Device added to pool"}
+    finally:
+        await db.close()
+
+
+@app.delete("/api/pools/{pool_id}/devices/{device_id}")
+async def remove_device_from_pool(pool_id: int, device_id: str):
+    db = await get_db()
+    try:
+        await db.execute(
+            "DELETE FROM device_pool_members WHERE pool_id = ? AND device_id = ?",
+            (pool_id, device_id),
+        )
+        await db.commit()
+        return {"message": "Device removed from pool"}
+    finally:
+        await db.close()
+
+
+# --- Device Tags ---
+
+
+@app.get("/api/devices/{device_id}/tags")
+async def device_get_tags(device_id: str):
+    db = await get_db()
+    try:
+        cursor = await db.execute("SELECT tag, color FROM device_tags WHERE device_id = ?", (device_id,))
+        tags = [{"tag": r[0], "color": r[1]} for r in await cursor.fetchall()]
+        return {"tags": tags}
+    finally:
+        await db.close()
+
+
+@app.post("/api/devices/{device_id}/tags")
+async def device_add_tag(device_id: str, body: dict):
+    db = await get_db()
+    try:
+        await db.execute(
+            "INSERT OR IGNORE INTO device_tags (device_id, tag, color) VALUES (?, ?, ?)",
+            (device_id, body.get("tag", ""), body.get("color", "#3b82f6")),
+        )
+        await db.commit()
+        return {"message": "Tag added"}
+    finally:
+        await db.close()
+
+
+@app.delete("/api/devices/{device_id}/tags/{tag}")
+async def device_remove_tag(device_id: str, tag: str):
+    db = await get_db()
+    try:
+        await db.execute("DELETE FROM device_tags WHERE device_id = ? AND tag = ?", (device_id, tag))
+        await db.commit()
+        return {"message": "Tag removed"}
+    finally:
+        await db.close()
+
+
+# --- Device Scheduling ---
+
+
+@app.get("/api/schedules")
+async def list_schedules():
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT ds.*, u.username FROM device_schedules ds LEFT JOIN users u ON ds.user_id = u.id ORDER BY ds.start_time"
+        )
+        return {"schedules": [dict(r) for r in await cursor.fetchall()]}
+    finally:
+        await db.close()
+
+
+@app.post("/api/schedules")
+async def create_schedule(body: dict):
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "INSERT INTO device_schedules (device_id, user_id, title, start_time, end_time) VALUES (?, ?, ?, ?, ?)",
+            (body.get("device_id", ""), body.get("user_id", 1), body.get("title", ""), body.get("start_time", ""), body.get("end_time", "")),
+        )
+        await db.commit()
+        return {"id": cursor.lastrowid, "message": "Schedule created"}
+    finally:
+        await db.close()
+
+
+@app.delete("/api/schedules/{schedule_id}")
+async def delete_schedule(schedule_id: int):
+    db = await get_db()
+    try:
+        await db.execute("DELETE FROM device_schedules WHERE id = ?", (schedule_id,))
+        await db.commit()
+        return {"message": "Schedule deleted"}
+    finally:
+        await db.close()
+
+
+# --- Cost Tracking ---
+
+
+@app.get("/api/usage")
+async def list_usage_sessions(device_id: str = None):
+    db = await get_db()
+    try:
+        if device_id:
+            cursor = await db.execute(
+                "SELECT * FROM usage_sessions WHERE device_id = ? ORDER BY started_at DESC LIMIT 100",
+                (device_id,),
+            )
+        else:
+            cursor = await db.execute("SELECT * FROM usage_sessions ORDER BY started_at DESC LIMIT 100")
+        sessions = [dict(r) for r in await cursor.fetchall()]
+        total_cost = sum(s.get("cost_cents", 0) for s in sessions)
+        total_hours = sum(s.get("duration_seconds", 0) for s in sessions) / 3600
+        return {"sessions": sessions, "total_cost_cents": total_cost, "total_hours": round(total_hours, 2)}
+    finally:
+        await db.close()
+
+
+@app.post("/api/usage/start")
+async def start_usage_session(body: dict):
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "INSERT INTO usage_sessions (device_id, user_id) VALUES (?, ?)",
+            (body.get("device_id", ""), body.get("user_id")),
+        )
+        await db.commit()
+        return {"session_id": cursor.lastrowid}
+    finally:
+        await db.close()
+
+
+@app.post("/api/usage/{session_id}/end")
+async def end_usage_session(session_id: int):
+    db = await get_db()
+    try:
+        cursor = await db.execute("SELECT started_at FROM usage_sessions WHERE id = ?", (session_id,))
+        row = await cursor.fetchone()
+        if row:
+            started = row[0]
+            now = datetime.now(timezone.utc).isoformat()
+            from datetime import datetime as dt
+            try:
+                start_dt = dt.fromisoformat(started.replace("Z", "+00:00"))
+                end_dt = dt.fromisoformat(now.replace("Z", "+00:00"))
+                dur = int((end_dt - start_dt).total_seconds())
+            except Exception:
+                dur = 0
+            cost = max(1, dur // 60)  # 1 cent per minute
+            await db.execute(
+                "UPDATE usage_sessions SET ended_at = ?, duration_seconds = ?, cost_cents = ? WHERE id = ?",
+                (now, dur, cost, session_id),
+            )
+            await db.commit()
+        return {"message": "Session ended"}
+    finally:
+        await db.close()
+
+
+# --- Webhooks ---
+
+
+@app.get("/api/webhooks")
+async def list_webhooks():
+    db = await get_db()
+    try:
+        cursor = await db.execute("SELECT * FROM webhooks ORDER BY created_at DESC")
+        return {"webhooks": [dict(r) for r in await cursor.fetchall()]}
+    finally:
+        await db.close()
+
+
+@app.post("/api/webhooks")
+async def create_webhook(body: dict):
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "INSERT INTO webhooks (name, url, events, secret) VALUES (?, ?, ?, ?)",
+            (body.get("name", ""), body.get("url", ""), json.dumps(body.get("events", ["device.created"])), body.get("secret", "")),
+        )
+        await db.commit()
+        return {"id": cursor.lastrowid, "message": "Webhook created"}
+    finally:
+        await db.close()
+
+
+@app.delete("/api/webhooks/{webhook_id}")
+async def delete_webhook(webhook_id: int):
+    db = await get_db()
+    try:
+        await db.execute("DELETE FROM webhooks WHERE id = ?", (webhook_id,))
+        await db.commit()
+        return {"message": "Webhook deleted"}
+    finally:
+        await db.close()
+
+
+@app.put("/api/webhooks/{webhook_id}/toggle")
+async def toggle_webhook(webhook_id: int):
+    db = await get_db()
+    try:
+        await db.execute("UPDATE webhooks SET is_active = CASE WHEN is_active = 1 THEN 0 ELSE 1 END WHERE id = ?", (webhook_id,))
+        await db.commit()
+        return {"message": "Webhook toggled"}
+    finally:
+        await db.close()
+
+
+# --- Screenshot Comparison ---
+
+
+@app.post("/api/devices/{device_id}/screenshot-compare")
+async def screenshot_compare(device_id: str, body: dict):
+    serial_a = _get_serial(device_id)
+    other_device_id = body.get("other_device_id", "")
+    if not other_device_id:
+        raise HTTPException(status_code=400, detail="other_device_id required")
+    serial_b = _get_serial(other_device_id)
+    img_a = await take_screenshot_for_comparison(serial_a)
+    img_b = await take_screenshot_for_comparison(serial_b)
+    name = body.get("name", f"compare_{device_id}_{other_device_id}")
+    db = await get_db()
+    try:
+        await db.execute(
+            "INSERT INTO screenshot_comparisons (name, device_id_a, device_id_b, screenshot_a, screenshot_b) VALUES (?, ?, ?, ?, ?)",
+            (name, device_id, other_device_id, img_a or "", img_b or ""),
+        )
+        await db.commit()
+    finally:
+        await db.close()
+    return {"screenshot_a": img_a, "screenshot_b": img_b, "name": name}
+
+
+@app.get("/api/screenshot-comparisons")
+async def list_screenshot_comparisons():
+    db = await get_db()
+    try:
+        cursor = await db.execute("SELECT id, name, device_id_a, device_id_b, created_at FROM screenshot_comparisons ORDER BY created_at DESC LIMIT 20")
+        return {"comparisons": [dict(r) for r in await cursor.fetchall()]}
+    finally:
+        await db.close()
+
+
+# --- Remote Debugging ---
+
+
+@app.get("/api/devices/{device_id}/debug-info")
+async def device_debug_info(device_id: str):
+    serial = _get_serial(device_id)
+    url = await get_webview_debug_url(serial)
+    iid = int(device_id.replace("cvd-", ""))
+    adb_port = 6520 + iid - 1
+    return {
+        "adb_connect": f"adb connect {PUBLIC_IP}:{adb_port}",
+        "chrome_inspect": url or "chrome://inspect/#devices",
+        "adb_forward": f"adb -s {PUBLIC_IP}:{adb_port} forward tcp:9222 localabstract:chrome_devtools_remote",
+        "webrtc_url": f"https://{PUBLIC_IP}:8443",
+    }
+
+
+# --- Automated Testing ---
+
+
+@app.post("/api/devices/{device_id}/test/monkey")
+async def device_monkey_test(device_id: str, body: dict):
+    serial = _get_serial(device_id)
+    package = body.get("package", "")
+    event_count = body.get("event_count", 500)
+    if not package:
+        raise HTTPException(status_code=400, detail="package required")
+    success, output = await run_monkey_test(serial, package, event_count)
+    # Log analytics
+    db = await get_db()
+    try:
+        await db.execute(
+            "INSERT INTO analytics_events (event_type, device_id, details) VALUES (?, ?, ?)",
+            ("monkey_test", device_id, json.dumps({"package": package, "events": event_count, "passed": success})),
+        )
+        await db.commit()
+    finally:
+        await db.close()
+    return {"success": success, "output": output}
 
 
 # --- Server Status ---

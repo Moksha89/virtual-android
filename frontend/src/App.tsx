@@ -65,6 +65,25 @@ import {
   Activity,
   Clock,
   Copy,
+  MessageSquare,
+  Phone,
+  PhoneOff,
+  Globe,
+  Tag,
+  Calendar,
+  DollarSign,
+  Webhook,
+  Bug,
+  Mic,
+  MicOff,
+  Brain,
+  TestTube,
+  Thermometer,
+  Navigation,
+  Languages,
+  GitBranch,
+  Hash,
+  Boxes,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -1966,6 +1985,865 @@ function SnapshotsDialog({ device, open, onClose }: { device: DeviceInfo; open: 
 }
 
 // --- Multi-device Action Bar ---
+// --- Device Health Monitor Dialog ---
+function DeviceHealthDialog({ device, open, onClose }: { device: DeviceInfo; open: boolean; onClose: () => void }) {
+  const [health, setHealth] = useState<Record<string, unknown> | null>(null);
+  const [history, setHistory] = useState<{ cpu: number; mem: number; time: string }[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const fetchHealth = useCallback(async () => {
+    try {
+      const h = await api.getDeviceHealth(device.id);
+      setHealth(h);
+      setHistory(prev => {
+        const next = [...prev, { cpu: h.cpu_usage, mem: h.mem_used_mb, time: new Date().toLocaleTimeString() }];
+        return next.slice(-20);
+      });
+    } catch { /* ignore */ }
+    finally { setLoading(false); }
+  }, [device.id]);
+
+  useEffect(() => {
+    if (!open) return;
+    fetchHealth();
+    const iv = setInterval(fetchHealth, 5000);
+    return () => clearInterval(iv);
+  }, [open, fetchHealth]);
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2"><Activity className="w-5 h-5 text-green-500" /> Device Health — {device.name}</DialogTitle>
+        </DialogHeader>
+        {loading ? <div className="flex justify-center py-8"><Loader2 className="w-8 h-8 animate-spin" /></div> : health ? (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <Card><CardContent className="pt-3 pb-2">
+                <div className="flex items-center gap-1.5 mb-1"><Cpu className="w-3.5 h-3.5 text-blue-500" /><span className="text-xs font-medium">CPU</span></div>
+                <div className="text-xl font-bold">{(health.cpu_usage as number).toFixed(1)}%</div>
+                <Progress value={health.cpu_usage as number} className="mt-1 h-1.5" />
+              </CardContent></Card>
+              <Card><CardContent className="pt-3 pb-2">
+                <div className="flex items-center gap-1.5 mb-1"><MemoryStick className="w-3.5 h-3.5 text-green-500" /><span className="text-xs font-medium">RAM</span></div>
+                <div className="text-xl font-bold">{health.mem_used_mb as number}MB</div>
+                <div className="text-xs text-gray-500">/ {health.mem_total_mb as number}MB</div>
+                <Progress value={(health.mem_total_mb as number) > 0 ? ((health.mem_used_mb as number) / (health.mem_total_mb as number)) * 100 : 0} className="mt-1 h-1.5" />
+              </CardContent></Card>
+              <Card><CardContent className="pt-3 pb-2">
+                <div className="flex items-center gap-1.5 mb-1"><Battery className="w-3.5 h-3.5 text-yellow-500" /><span className="text-xs font-medium">Battery</span></div>
+                <div className="text-xl font-bold">{health.battery_level as number}%</div>
+                <div className="text-xs text-gray-500">{health.battery_status as string}</div>
+                <Progress value={Math.max(0, health.battery_level as number)} className="mt-1 h-1.5" />
+              </CardContent></Card>
+              <Card><CardContent className="pt-3 pb-2">
+                <div className="flex items-center gap-1.5 mb-1"><Thermometer className="w-3.5 h-3.5 text-red-500" /><span className="text-xs font-medium">Temperature</span></div>
+                <div className="text-xl font-bold">{(health.battery_temp as number).toFixed(1)}°C</div>
+                <div className="text-xs text-gray-500">Device temp: {(health.temperature_c as number).toFixed(1)}°C</div>
+              </CardContent></Card>
+            </div>
+            <Card><CardContent className="pt-3 pb-2">
+              <div className="flex items-center gap-1.5 mb-1"><HardDrive className="w-3.5 h-3.5 text-orange-500" /><span className="text-xs font-medium">Disk</span></div>
+              <div className="text-sm">{health.disk_used_mb as number}MB / {health.disk_total_mb as number}MB</div>
+              <Progress value={(health.disk_total_mb as number) > 0 ? ((health.disk_used_mb as number) / (health.disk_total_mb as number)) * 100 : 0} className="mt-1 h-1.5" />
+            </CardContent></Card>
+            {history.length > 1 && (
+              <Card><CardContent className="pt-3 pb-2">
+                <div className="text-xs font-medium mb-2">CPU Usage Over Time</div>
+                <div className="h-24 flex items-end gap-0.5">
+                  {history.map((h, i) => (
+                    <div key={i} className="flex-1 bg-blue-500 rounded-t-sm transition-all" style={{ height: `${Math.max(2, h.cpu)}%` }} title={`${h.cpu.toFixed(1)}% at ${h.time}`} />
+                  ))}
+                </div>
+              </CardContent></Card>
+            )}
+            <div className="text-xs text-gray-500">Uptime: {health.uptime as string}</div>
+          </div>
+        ) : <p className="text-sm text-gray-500">Failed to load health data</p>}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// --- GPS Simulation Dialog ---
+function GPSSimulatorDialog({ device, open, onClose }: { device: DeviceInfo; open: boolean; onClose: () => void }) {
+  const [lat, setLat] = useState("40.7128");
+  const [lng, setLng] = useState("-74.0060");
+  const [presets, setPresets] = useState<{ name: string; latitude: number; longitude: number }[]>([]);
+  const [status, setStatus] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (open) api.getGpsPresets().then(r => setPresets(r.presets)).catch(() => {});
+  }, [open]);
+
+  const handleSet = async () => {
+    setLoading(true);
+    setStatus("");
+    try {
+      await api.setGps(device.id, parseFloat(lat), parseFloat(lng));
+      setStatus("GPS location set!");
+    } catch (e) { setStatus((e as Error).message); }
+    finally { setLoading(false); }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="max-w-md max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2"><Navigation className="w-5 h-5 text-blue-500" /> GPS Simulation — {device.name}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label className="text-xs">Latitude</Label>
+              <Input value={lat} onChange={e => setLat(e.target.value)} placeholder="40.7128" />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Longitude</Label>
+              <Input value={lng} onChange={e => setLng(e.target.value)} placeholder="-74.0060" />
+            </div>
+          </div>
+          <Button onClick={handleSet} disabled={loading} className="w-full">
+            {loading ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <MapPin className="w-4 h-4 mr-1" />} Set Location
+          </Button>
+          {status && <p className={`text-xs ${status.includes("set") ? "text-green-600" : "text-red-500"}`}>{status}</p>}
+          <Separator />
+          <div className="space-y-2">
+            <Label className="text-xs font-semibold">Quick Presets</Label>
+            <div className="grid grid-cols-2 gap-1.5">
+              {presets.map(p => (
+                <button key={p.name} onClick={() => { setLat(String(p.latitude)); setLng(String(p.longitude)); }}
+                  className="text-xs text-left p-2 rounded border hover:bg-gray-50 transition">
+                  <div className="font-medium">{p.name}</div>
+                  <div className="text-gray-400">{p.latitude}, {p.longitude}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// --- SMS/Call Simulation Dialog ---
+function SMSCallDialog({ device, open, onClose }: { device: DeviceInfo; open: boolean; onClose: () => void }) {
+  const [phone, setPhone] = useState("+15551234567");
+  const [message, setMessage] = useState("Test message from Device Manager");
+  const [status, setStatus] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [callActive, setCallActive] = useState(false);
+
+  const handleSendSms = async () => {
+    setLoading(true); setStatus("");
+    try {
+      await api.sendSms(device.id, phone, message);
+      setStatus("SMS sent!");
+    } catch (e) { setStatus((e as Error).message); }
+    finally { setLoading(false); }
+  };
+
+  const handleCall = async () => {
+    setLoading(true); setStatus("");
+    try {
+      if (callActive) {
+        await api.makeCall(device.id, phone, "end");
+        setCallActive(false);
+        setStatus("Call ended");
+      } else {
+        await api.makeCall(device.id, phone, "call");
+        setCallActive(true);
+        setStatus("Call initiated!");
+      }
+    } catch (e) { setStatus((e as Error).message); }
+    finally { setLoading(false); }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2"><MessageSquare className="w-5 h-5 text-green-500" /> SMS & Call Simulation</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="space-y-1">
+            <Label className="text-xs">Phone Number</Label>
+            <Input value={phone} onChange={e => setPhone(e.target.value)} placeholder="+15551234567" />
+          </div>
+          <Separator />
+          <div className="space-y-2">
+            <Label className="text-xs font-semibold">Send SMS</Label>
+            <textarea value={message} onChange={e => setMessage(e.target.value)} rows={3}
+              className="w-full text-sm border rounded-md p-2 resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="Type message..." />
+            <Button onClick={handleSendSms} disabled={loading} className="w-full" variant="outline">
+              {loading ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <MessageSquare className="w-4 h-4 mr-1" />} Send SMS
+            </Button>
+          </div>
+          <Separator />
+          <div className="space-y-2">
+            <Label className="text-xs font-semibold">Phone Call</Label>
+            <Button onClick={handleCall} disabled={loading} className="w-full" variant={callActive ? "destructive" : "outline"}>
+              {callActive ? <><PhoneOff className="w-4 h-4 mr-1" /> End Call</> : <><Phone className="w-4 h-4 mr-1" /> Make Call</>}
+            </Button>
+          </div>
+          {status && <p className={`text-xs ${status.includes("!") ? "text-green-600" : "text-red-500"}`}>{status}</p>}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// --- Locale Switcher Dialog ---
+function LocaleSwitcherDialog({ device, open, onClose }: { device: DeviceInfo; open: boolean; onClose: () => void }) {
+  const [locales, setLocales] = useState<{ code: string; name: string; flag: string }[]>([]);
+  const [current, setCurrent] = useState("");
+  const [status, setStatus] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    api.getLocales().then(r => setLocales(r.locales)).catch(() => {});
+    api.getDeviceLocale(device.id).then(r => setCurrent(r.locale)).catch(() => {});
+  }, [open, device.id]);
+
+  const handleSet = async (locale: string) => {
+    setLoading(true); setStatus("");
+    try {
+      await api.setDeviceLocale(device.id, locale);
+      setCurrent(locale);
+      setStatus(`Locale set to ${locale}`);
+    } catch (e) { setStatus((e as Error).message); }
+    finally { setLoading(false); }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="max-w-md max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2"><Languages className="w-5 h-5 text-purple-500" /> Locale / Language — {device.name}</DialogTitle>
+          <DialogDescription>Current: {current || "Loading..."}</DialogDescription>
+        </DialogHeader>
+        <div className="grid grid-cols-2 gap-2">
+          {locales.map(l => (
+            <button key={l.code} onClick={() => handleSet(l.code)} disabled={loading}
+              className={`text-left p-2.5 rounded-lg border text-sm transition ${current === l.code ? "border-blue-500 bg-blue-50 ring-1 ring-blue-500" : "hover:bg-gray-50"}`}>
+              <div className="font-medium">{l.name}</div>
+              <div className="text-xs text-gray-400">{l.code}</div>
+            </button>
+          ))}
+        </div>
+        {status && <p className="text-xs text-green-600 mt-2">{status}</p>}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// --- Device Pools & Tags Tab ---
+function PoolsTagsTab({ devices }: { devices: DeviceInfo[] }) {
+  const [pools, setPools] = useState<{ id: number; name: string; description: string; color: string; devices: string[] }[]>([]);
+  const [newName, setNewName] = useState("");
+  const [newDesc, setNewDesc] = useState("");
+  const [newColor, setNewColor] = useState("#3b82f6");
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    try {
+      const r = await api.getPools();
+      setPools(r.pools);
+    } catch { /* ignore */ }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handleCreate = async () => {
+    if (!newName.trim()) return;
+    try {
+      await api.createPool(newName, newDesc, newColor);
+      setNewName(""); setNewDesc("");
+      await load();
+    } catch (e) { alert((e as Error).message); }
+  };
+
+  const handleDelete = async (id: number) => {
+    if (!confirm("Delete this pool?")) return;
+    await api.deletePool(id);
+    await load();
+  };
+
+  const handleAddDevice = async (poolId: number, deviceId: string) => {
+    await api.addDeviceToPool(poolId, deviceId);
+    await load();
+  };
+
+  const handleRemoveDevice = async (poolId: number, deviceId: string) => {
+    await api.removeDeviceFromPool(poolId, deviceId);
+    await load();
+  };
+
+  if (loading) return <div className="flex justify-center py-8"><Loader2 className="w-8 h-8 animate-spin" /></div>;
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader><CardTitle className="text-base flex items-center gap-2"><Boxes className="w-5 h-5" /> Create Device Pool</CardTitle></CardHeader>
+        <CardContent>
+          <div className="flex gap-2 flex-wrap">
+            <Input placeholder="Pool name" value={newName} onChange={e => setNewName(e.target.value)} className="flex-1 min-w-[150px]" />
+            <Input placeholder="Description" value={newDesc} onChange={e => setNewDesc(e.target.value)} className="flex-1 min-w-[150px]" />
+            <input type="color" value={newColor} onChange={e => setNewColor(e.target.value)} className="w-10 h-9 rounded border cursor-pointer" />
+            <Button onClick={handleCreate}><Plus className="w-4 h-4 mr-1" /> Create</Button>
+          </div>
+        </CardContent>
+      </Card>
+      {pools.length === 0 ? (
+        <Card className="py-8"><CardContent className="text-center text-gray-500">No pools created yet</CardContent></Card>
+      ) : pools.map(pool => (
+        <Card key={pool.id}>
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full" style={{ backgroundColor: pool.color }} />
+                <CardTitle className="text-base">{pool.name}</CardTitle>
+              </div>
+              <Button variant="ghost" size="sm" onClick={() => handleDelete(pool.id)}><Trash2 className="w-3.5 h-3.5 text-red-500" /></Button>
+            </div>
+            {pool.description && <CardDescription>{pool.description}</CardDescription>}
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap gap-1.5 mb-3">
+              {pool.devices.map(did => {
+                const d = devices.find(x => x.id === did);
+                return (
+                  <Badge key={did} variant="secondary" className="gap-1">
+                    {d?.name || did}
+                    <button onClick={() => handleRemoveDevice(pool.id, did)} className="ml-1 hover:text-red-500"><X className="w-3 h-3" /></button>
+                  </Badge>
+                );
+              })}
+            </div>
+            <Select onValueChange={(v) => handleAddDevice(pool.id, v)}>
+              <SelectTrigger className="w-48"><SelectValue placeholder="Add device..." /></SelectTrigger>
+              <SelectContent>
+                {devices.filter(d => !pool.devices.includes(d.id)).map(d => (
+                  <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  );
+}
+
+// --- Scheduling Tab ---
+function SchedulingTab({ devices }: { devices: DeviceInfo[] }) {
+  const { auth } = useAuth();
+  const [schedules, setSchedules] = useState<{ id: number; device_id: string; title: string; start_time: string; end_time: string; status: string; username: string }[]>([]);
+  const [title, setTitle] = useState("");
+  const [deviceId, setDeviceId] = useState("");
+  const [startTime, setStartTime] = useState("");
+  const [endTime, setEndTime] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    try { const r = await api.getSchedules(); setSchedules(r.schedules); } catch { /* ignore */ }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handleCreate = async () => {
+    if (!title || !deviceId || !startTime || !endTime) return;
+    try {
+      await api.createSchedule(deviceId, auth.user?.id || 1, title, startTime, endTime);
+      setTitle(""); setStartTime(""); setEndTime("");
+      await load();
+    } catch (e) { alert((e as Error).message); }
+  };
+
+  if (loading) return <div className="flex justify-center py-8"><Loader2 className="w-8 h-8 animate-spin" /></div>;
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader><CardTitle className="text-base flex items-center gap-2"><Calendar className="w-5 h-5" /> Reserve Device</CardTitle></CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Input placeholder="Reservation title" value={title} onChange={e => setTitle(e.target.value)} />
+            <Select value={deviceId} onValueChange={setDeviceId}>
+              <SelectTrigger><SelectValue placeholder="Select device" /></SelectTrigger>
+              <SelectContent>
+                {devices.map(d => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <div className="space-y-1">
+              <Label className="text-xs">Start</Label>
+              <Input type="datetime-local" value={startTime} onChange={e => setStartTime(e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">End</Label>
+              <Input type="datetime-local" value={endTime} onChange={e => setEndTime(e.target.value)} />
+            </div>
+          </div>
+          <Button onClick={handleCreate} className="mt-3"><Plus className="w-4 h-4 mr-1" /> Reserve</Button>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader><CardTitle className="text-base">Scheduled Reservations</CardTitle></CardHeader>
+        <CardContent>
+          {schedules.length === 0 ? <p className="text-sm text-gray-500">No reservations</p> : (
+            <div className="space-y-2">
+              {schedules.map(s => (
+                <div key={s.id} className="flex items-center justify-between p-3 rounded-lg border">
+                  <div>
+                    <div className="font-medium text-sm">{s.title}</div>
+                    <div className="text-xs text-gray-500">Device: {s.device_id} | By: {s.username || "N/A"}</div>
+                    <div className="text-xs text-gray-400">{new Date(s.start_time).toLocaleString()} → {new Date(s.end_time).toLocaleString()}</div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge variant={s.status === "scheduled" ? "default" : "secondary"}>{s.status}</Badge>
+                    <Button variant="ghost" size="sm" onClick={async () => { await api.deleteSchedule(s.id); await load(); }}><Trash2 className="w-3.5 h-3.5 text-red-500" /></Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// --- Cost Tracking Tab ---
+function CostTrackingTab() {
+  const [usage, setUsage] = useState<{ sessions: { id: number; device_id: string; started_at: string; ended_at: string | null; duration_seconds: number; cost_cents: number }[]; total_cost_cents: number; total_hours: number } | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api.getUsage().then(r => { setUsage(r); setLoading(false); }).catch(() => setLoading(false));
+  }, []);
+
+  if (loading) return <div className="flex justify-center py-8"><Loader2 className="w-8 h-8 animate-spin" /></div>;
+  if (!usage) return <p className="text-sm text-gray-500">Failed to load usage data</p>;
+
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <Card><CardContent className="pt-4">
+          <div className="flex items-center gap-2 mb-1"><DollarSign className="w-4 h-4 text-green-500" /><span className="text-sm font-medium">Total Cost</span></div>
+          <div className="text-2xl font-bold">${(usage.total_cost_cents / 100).toFixed(2)}</div>
+        </CardContent></Card>
+        <Card><CardContent className="pt-4">
+          <div className="flex items-center gap-2 mb-1"><Clock className="w-4 h-4 text-blue-500" /><span className="text-sm font-medium">Total Hours</span></div>
+          <div className="text-2xl font-bold">{usage.total_hours}h</div>
+        </CardContent></Card>
+        <Card><CardContent className="pt-4">
+          <div className="flex items-center gap-2 mb-1"><Activity className="w-4 h-4 text-purple-500" /><span className="text-sm font-medium">Sessions</span></div>
+          <div className="text-2xl font-bold">{usage.sessions.length}</div>
+        </CardContent></Card>
+      </div>
+      <Card>
+        <CardHeader><CardTitle className="text-base">Usage Sessions</CardTitle></CardHeader>
+        <CardContent>
+          {usage.sessions.length === 0 ? <p className="text-sm text-gray-500">No usage sessions recorded</p> : (
+            <div className="space-y-2 max-h-96 overflow-y-auto">
+              {usage.sessions.map(s => (
+                <div key={s.id} className="flex items-center justify-between p-2 rounded border text-sm">
+                  <div>
+                    <span className="font-medium">{s.device_id}</span>
+                    <div className="text-xs text-gray-400">{new Date(s.started_at).toLocaleString()}{s.ended_at ? ` → ${new Date(s.ended_at).toLocaleString()}` : " (active)"}</div>
+                  </div>
+                  <div className="text-right">
+                    <div className="font-medium">${(s.cost_cents / 100).toFixed(2)}</div>
+                    <div className="text-xs text-gray-400">{Math.round(s.duration_seconds / 60)}min</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// --- Webhooks Tab ---
+function WebhooksTab() {
+  const [webhooks, setWebhooks] = useState<{ id: number; name: string; url: string; events: string; is_active: number; created_at: string }[]>([]);
+  const [name, setName] = useState("");
+  const [url, setUrl] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    try { const r = await api.getWebhooks(); setWebhooks(r.webhooks); } catch { /* ignore */ }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handleCreate = async () => {
+    if (!name || !url) return;
+    await api.createWebhook(name, url, ["device.created", "device.deleted"]);
+    setName(""); setUrl("");
+    await load();
+  };
+
+  if (loading) return <div className="flex justify-center py-8"><Loader2 className="w-8 h-8 animate-spin" /></div>;
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader><CardTitle className="text-base flex items-center gap-2"><Webhook className="w-5 h-5" /> Add Webhook</CardTitle></CardHeader>
+        <CardContent>
+          <div className="flex gap-2 flex-wrap">
+            <Input placeholder="Webhook name" value={name} onChange={e => setName(e.target.value)} className="flex-1 min-w-[150px]" />
+            <Input placeholder="https://your-ci.example.com/webhook" value={url} onChange={e => setUrl(e.target.value)} className="flex-1 min-w-[200px]" />
+            <Button onClick={handleCreate}><Plus className="w-4 h-4 mr-1" /> Add</Button>
+          </div>
+        </CardContent>
+      </Card>
+      {webhooks.length === 0 ? <Card className="py-8"><CardContent className="text-center text-gray-500">No webhooks configured</CardContent></Card> : (
+        <div className="space-y-2">
+          {webhooks.map(w => (
+            <Card key={w.id}>
+              <CardContent className="pt-3 pb-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <div className={`w-2 h-2 rounded-full ${w.is_active ? "bg-green-500" : "bg-gray-300"}`} />
+                      <span className="font-medium text-sm">{w.name}</span>
+                    </div>
+                    <div className="text-xs text-gray-500 ml-4 mt-0.5">{w.url}</div>
+                    <div className="text-xs text-gray-400 ml-4">Events: {w.events}</div>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Button variant="ghost" size="sm" onClick={async () => { await api.toggleWebhook(w.id); await load(); }}>
+                      <Switch checked={!!w.is_active} />
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={async () => { await api.deleteWebhook(w.id); await load(); }}>
+                      <Trash2 className="w-3.5 h-3.5 text-red-500" />
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// --- Remote Debug Dialog ---
+function RemoteDebugDialog({ device, open, onClose }: { device: DeviceInfo; open: boolean; onClose: () => void }) {
+  const [info, setInfo] = useState<{ adb_connect: string; chrome_inspect: string; adb_forward: string; webrtc_url: string } | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (open) {
+      api.getDebugInfo(device.id).then(r => { setInfo(r); setLoading(false); }).catch(() => setLoading(false));
+    }
+  }, [open, device.id]);
+
+  const copyToClip = (text: string) => { navigator.clipboard.writeText(text).catch(() => {}); };
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2"><Bug className="w-5 h-5 text-orange-500" /> Remote Debugging — {device.name}</DialogTitle>
+        </DialogHeader>
+        {loading ? <div className="flex justify-center py-8"><Loader2 className="w-8 h-8 animate-spin" /></div> : info ? (
+          <div className="space-y-3">
+            {[
+              { label: "ADB Connect", value: info.adb_connect, icon: Terminal },
+              { label: "Chrome Inspect", value: info.chrome_inspect, icon: Globe },
+              { label: "ADB Forward", value: info.adb_forward, icon: GitBranch },
+              { label: "WebRTC URL", value: info.webrtc_url, icon: Monitor },
+            ].map(item => (
+              <div key={item.label} className="p-3 rounded-lg border">
+                <div className="flex items-center gap-1.5 mb-1">
+                  <item.icon className="w-3.5 h-3.5 text-gray-500" />
+                  <span className="text-xs font-medium text-gray-500">{item.label}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <code className="text-xs bg-gray-100 px-2 py-1 rounded flex-1 mr-2 overflow-x-auto">{item.value}</code>
+                  <Button variant="ghost" size="sm" onClick={() => copyToClip(item.value)} className="h-7 px-2"><Copy className="w-3.5 h-3.5" /></Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : <p className="text-sm text-gray-500">Failed to load debug info</p>}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// --- Automated Testing Dialog ---
+function AutoTestDialog({ device, open, onClose }: { device: DeviceInfo; open: boolean; onClose: () => void }) {
+  const [packageName, setPackageName] = useState("");
+  const [eventCount, setEventCount] = useState(500);
+  const [running, setRunning] = useState(false);
+  const [result, setResult] = useState<{ success: boolean; output: string } | null>(null);
+
+  const handleRun = async () => {
+    if (!packageName) return;
+    setRunning(true); setResult(null);
+    try {
+      const r = await api.runMonkeyTest(device.id, packageName, eventCount);
+      setResult(r);
+    } catch (e) { setResult({ success: false, output: (e as Error).message }); }
+    finally { setRunning(false); }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2"><TestTube className="w-5 h-5 text-purple-500" /> Automated Testing — {device.name}</DialogTitle>
+          <DialogDescription>Run Android Monkey stress test on an app</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="space-y-1">
+            <Label className="text-xs">Package Name</Label>
+            <Input value={packageName} onChange={e => setPackageName(e.target.value)} placeholder="com.example.app" />
+          </div>
+          <div className="space-y-1">
+            <div className="flex items-center justify-between">
+              <Label className="text-xs">Random Events</Label>
+              <span className="text-xs font-medium">{eventCount}</span>
+            </div>
+            <Slider value={[eventCount]} onValueChange={([v]) => setEventCount(v)} min={100} max={5000} step={100} />
+          </div>
+          <Button onClick={handleRun} disabled={running || !packageName} className="w-full">
+            {running ? <><Loader2 className="w-4 h-4 animate-spin mr-1" /> Running Test...</> : <><Play className="w-4 h-4 mr-1" /> Run Monkey Test</>}
+          </Button>
+          {result && (
+            <div className={`p-3 rounded-lg border ${result.success ? "bg-green-50 border-green-200" : "bg-red-50 border-red-200"}`}>
+              <div className={`text-sm font-medium mb-1 ${result.success ? "text-green-700" : "text-red-700"}`}>
+                {result.success ? "Test Passed!" : "Test Failed / Crash Detected"}
+              </div>
+              <pre className="text-xs overflow-x-auto max-h-40 whitespace-pre-wrap text-gray-600">{result.output}</pre>
+            </div>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// --- Screenshot Comparison Dialog ---
+function ScreenshotCompareDialog({ devices, open, onClose }: { devices: DeviceInfo[]; open: boolean; onClose: () => void }) {
+  const [deviceA, setDeviceA] = useState("");
+  const [deviceB, setDeviceB] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<{ screenshot_a: string | null; screenshot_b: string | null } | null>(null);
+
+  const handleCompare = async () => {
+    if (!deviceA || !deviceB) return;
+    setLoading(true); setResult(null);
+    try {
+      const r = await api.compareScreenshots(deviceA, deviceB);
+      setResult(r);
+    } catch (e) { alert((e as Error).message); }
+    finally { setLoading(false); }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2"><Layers className="w-5 h-5 text-indigo-500" /> Screenshot Comparison</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <Select value={deviceA} onValueChange={setDeviceA}>
+              <SelectTrigger><SelectValue placeholder="Device A" /></SelectTrigger>
+              <SelectContent>{devices.filter(d => d.status === "running").map(d => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}</SelectContent>
+            </Select>
+            <Select value={deviceB} onValueChange={setDeviceB}>
+              <SelectTrigger><SelectValue placeholder="Device B" /></SelectTrigger>
+              <SelectContent>{devices.filter(d => d.status === "running" && d.id !== deviceA).map(d => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
+          <Button onClick={handleCompare} disabled={loading || !deviceA || !deviceB} className="w-full">
+            {loading ? <><Loader2 className="w-4 h-4 animate-spin mr-1" /> Capturing...</> : <><Camera className="w-4 h-4 mr-1" /> Compare Screenshots</>}
+          </Button>
+          {result && (
+            <div className="grid grid-cols-2 gap-3">
+              {result.screenshot_a && <div className="space-y-1"><Label className="text-xs">Device A</Label><img src={`data:image/png;base64,${result.screenshot_a}`} alt="Device A" className="w-full rounded border" /></div>}
+              {result.screenshot_b && <div className="space-y-1"><Label className="text-xs">Device B</Label><img src={`data:image/png;base64,${result.screenshot_b}`} alt="Device B" className="w-full rounded border" /></div>}
+            </div>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// --- AI Test Generator Dialog ---
+function AITestGeneratorDialog({ device, open, onClose }: { device: DeviceInfo; open: boolean; onClose: () => void }) {
+  const [prompt, setPrompt] = useState("");
+  const [result, setResult] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const handleGenerate = () => {
+    if (!prompt) return;
+    setLoading(true);
+    // Simulate AI generation (no external API key needed)
+    setTimeout(() => {
+      const steps = [
+        `# Auto-Generated Test Plan for "${prompt}"`,
+        `## Device: ${device.name} (Android ${device.android_version})`,
+        ``,
+        `### Test Steps:`,
+        `1. Launch the application`,
+        `2. Wait for main screen to load (2-3 seconds)`,
+        `3. ${prompt.includes("login") ? "Enter credentials in login form" : "Navigate to the primary feature screen"}`,
+        `4. Verify UI elements are displayed correctly`,
+        `5. Perform the described action: "${prompt}"`,
+        `6. Capture screenshot for visual verification`,
+        `7. Check logcat for crashes or ANR events`,
+        `8. Verify no memory leaks via dumpsys meminfo`,
+        ``,
+        `### ADB Commands:`,
+        `\`\`\`bash`,
+        `# Launch app`,
+        `adb shell am start -n com.example.app/.MainActivity`,
+        `# Wait for load`,
+        `sleep 3`,
+        `# Take screenshot`,
+        `adb shell screencap -p /sdcard/test_screenshot.png`,
+        `# Check for crashes`,
+        `adb logcat -d | grep -i "crash\\|fatal\\|anr"`,
+        `# Memory check`,
+        `adb shell dumpsys meminfo com.example.app`,
+        `\`\`\``,
+        ``,
+        `### Expected Results:`,
+        `- No crashes detected in logcat`,
+        `- UI elements render correctly`,
+        `- Memory usage within acceptable limits`,
+        `- Action completes without errors`,
+      ];
+      setResult(steps.join("\n"));
+      setLoading(false);
+    }, 1500);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2"><Brain className="w-5 h-5 text-pink-500" /> AI Test Generator</DialogTitle>
+          <DialogDescription>Describe what to test in plain English</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4">
+          <textarea value={prompt} onChange={e => setPrompt(e.target.value)} rows={3}
+            className="w-full text-sm border rounded-md p-2 resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            placeholder="e.g., Test the login flow with invalid credentials and verify error message appears" />
+          <Button onClick={handleGenerate} disabled={loading || !prompt} className="w-full">
+            {loading ? <><Loader2 className="w-4 h-4 animate-spin mr-1" /> Generating...</> : <><Brain className="w-4 h-4 mr-1" /> Generate Test Plan</>}
+          </Button>
+          {result && (
+            <div className="p-3 rounded-lg border bg-gray-50 max-h-80 overflow-y-auto">
+              <pre className="text-xs whitespace-pre-wrap font-mono">{result}</pre>
+            </div>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// --- Voice Control Button ---
+function VoiceControlButton({ onCommand }: { onCommand: (cmd: string) => void }) {
+  const [listening, setListening] = useState(false);
+  const [transcript, setTranscript] = useState("");
+  const recognitionRef = useRef<unknown>(null);
+
+  const toggle = () => {
+    if (listening) {
+      (recognitionRef.current as { stop: () => void })?.stop?.();
+      setListening(false);
+      return;
+    }
+    const SR = (window as unknown as Record<string, unknown>).SpeechRecognition || (window as unknown as Record<string, unknown>).webkitSpeechRecognition;
+    if (!SR) { alert("Speech recognition not supported in this browser"); return; }
+    const recognition = new (SR as { new(): { continuous: boolean; interimResults: boolean; onresult: (e: { results: { transcript: string }[][] }) => void; onend: () => void; onerror: () => void; start: () => void; stop: () => void } })();
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.onresult = (e: { results: { transcript: string }[][] }) => {
+      const text = e.results[0][0].transcript;
+      setTranscript(text);
+      onCommand(text);
+    };
+    recognition.onend = () => setListening(false);
+    recognition.onerror = () => setListening(false);
+    recognitionRef.current = recognition;
+    recognition.start();
+    setListening(true);
+  };
+
+  return (
+    <div className="flex items-center gap-2">
+      <Button variant={listening ? "destructive" : "outline"} size="sm" onClick={toggle} className="h-8 w-8 sm:h-9 sm:w-9 p-0" title="Voice Control">
+        {listening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+      </Button>
+      {transcript && <span className="text-xs text-gray-500 max-w-[200px] truncate">"{transcript}"</span>}
+    </div>
+  );
+}
+
+// --- Device Tag Badges on Card ---
+function DeviceTagBadges({ deviceId }: { deviceId: string }) {
+  const [tags, setTags] = useState<{ tag: string; color: string }[]>([]);
+  const [adding, setAdding] = useState(false);
+  const [newTag, setNewTag] = useState("");
+
+  useEffect(() => {
+    api.getDeviceTags(deviceId).then(r => setTags(r.tags)).catch(() => {});
+  }, [deviceId]);
+
+  const handleAdd = async () => {
+    if (!newTag.trim()) return;
+    await api.addDeviceTag(deviceId, newTag.trim());
+    setNewTag(""); setAdding(false);
+    const r = await api.getDeviceTags(deviceId);
+    setTags(r.tags);
+  };
+
+  const handleRemove = async (tag: string) => {
+    await api.removeDeviceTag(deviceId, tag);
+    const r = await api.getDeviceTags(deviceId);
+    setTags(r.tags);
+  };
+
+  return (
+    <div className="flex flex-wrap gap-1 items-center">
+      {tags.map(t => (
+        <Badge key={t.tag} variant="outline" className="text-xs px-1.5 py-0 gap-0.5" style={{ borderColor: t.color, color: t.color }}>
+          <Tag className="w-2.5 h-2.5" />{t.tag}
+          <button onClick={() => handleRemove(t.tag)} className="ml-0.5 hover:opacity-70"><X className="w-2.5 h-2.5" /></button>
+        </Badge>
+      ))}
+      {adding ? (
+        <div className="flex items-center gap-1">
+          <Input value={newTag} onChange={e => setNewTag(e.target.value)} onKeyDown={e => e.key === "Enter" && handleAdd()}
+            className="h-5 text-xs w-20 px-1" placeholder="tag" autoFocus />
+          <button onClick={handleAdd} className="text-green-500 hover:text-green-700"><Plus className="w-3 h-3" /></button>
+          <button onClick={() => setAdding(false)} className="text-gray-400 hover:text-gray-600"><X className="w-3 h-3" /></button>
+        </div>
+      ) : (
+        <button onClick={() => setAdding(true)} className="text-gray-400 hover:text-blue-500" title="Add tag"><Hash className="w-3 h-3" /></button>
+      )}
+    </div>
+  );
+}
+
 function MultiDeviceActionBar({ selectedIds, onClearSelection, onRefresh }: {
   selectedIds: Set<string>; onClearSelection: () => void; onRefresh: () => void;
 }) {
@@ -2012,6 +2890,13 @@ function DeviceCard({
   onOpenClipboard,
   onOpenNetwork,
   onOpenSnapshots,
+  onOpenHealth,
+  onOpenGps,
+  onOpenSmsCall,
+  onOpenLocale,
+  onOpenDebug,
+  onOpenAutoTest,
+  onOpenAiTest,
 }: {
   device: DeviceInfo;
   onDelete: (id: string) => void;
@@ -2028,6 +2913,13 @@ function DeviceCard({
   onOpenClipboard: () => void;
   onOpenNetwork: () => void;
   onOpenSnapshots: () => void;
+  onOpenHealth: () => void;
+  onOpenGps: () => void;
+  onOpenSmsCall: () => void;
+  onOpenLocale: () => void;
+  onOpenDebug: () => void;
+  onOpenAutoTest: () => void;
+  onOpenAiTest: () => void;
 }) {
   return (
     <Card className={`hover:shadow-md transition-shadow ${selected ? "ring-2 ring-blue-500" : ""}`}>
@@ -2055,6 +2947,8 @@ function DeviceCard({
           <div className="flex items-center gap-1.5 text-gray-500"><MemoryStick className="w-3.5 h-3.5" /><span>{device.ram_mb >= 1024 ? `${(device.ram_mb / 1024).toFixed(0)}GB` : `${device.ram_mb}MB`} RAM</span></div>
           <div className="flex items-center gap-1.5 text-gray-500"><HardDrive className="w-3.5 h-3.5" /><span>{device.storage_gb}GB Storage</span></div>
         </div>
+        {/* Tags */}
+        <DeviceTagBadges deviceId={device.id} />
         <Separator />
         <div className="text-xs space-y-1 text-gray-500">
           <div>Resolution: {device.x_res}x{device.y_res} @ {device.dpi}dpi</div>
@@ -2080,7 +2974,7 @@ function DeviceCard({
             </Button>
           )}
         </div>
-        {/* Advanced tools */}
+        {/* Advanced tools - Row 1: Core Tools */}
         {device.status === "running" && (
           <div className="flex flex-wrap gap-1 pt-1">
             <Button variant="ghost" size="sm" onClick={onOpenFileManager} title="File Manager" className="h-7 px-2"><FolderOpen className="w-3.5 h-3.5" /></Button>
@@ -2091,6 +2985,18 @@ function DeviceCard({
             <Button variant="ghost" size="sm" onClick={onOpenNetwork} title="Network Throttle" className="h-7 px-2"><Signal className="w-3.5 h-3.5" /></Button>
             <Button variant="ghost" size="sm" onClick={onOpenSnapshots} title="Snapshots" className="h-7 px-2"><Save className="w-3.5 h-3.5" /></Button>
             <ScreenRecordingControls device={device} />
+          </div>
+        )}
+        {/* Advanced tools - Row 2: New Features */}
+        {device.status === "running" && (
+          <div className="flex flex-wrap gap-1">
+            <Button variant="ghost" size="sm" onClick={onOpenHealth} title="Device Health" className="h-7 px-2"><Activity className="w-3.5 h-3.5 text-green-500" /></Button>
+            <Button variant="ghost" size="sm" onClick={onOpenGps} title="GPS Simulation" className="h-7 px-2"><Navigation className="w-3.5 h-3.5 text-blue-500" /></Button>
+            <Button variant="ghost" size="sm" onClick={onOpenSmsCall} title="SMS/Call Sim" className="h-7 px-2"><MessageSquare className="w-3.5 h-3.5 text-green-600" /></Button>
+            <Button variant="ghost" size="sm" onClick={onOpenLocale} title="Locale/Language" className="h-7 px-2"><Languages className="w-3.5 h-3.5 text-purple-500" /></Button>
+            <Button variant="ghost" size="sm" onClick={onOpenDebug} title="Remote Debug" className="h-7 px-2"><Bug className="w-3.5 h-3.5 text-orange-500" /></Button>
+            <Button variant="ghost" size="sm" onClick={onOpenAutoTest} title="Monkey Test" className="h-7 px-2"><TestTube className="w-3.5 h-3.5 text-purple-600" /></Button>
+            <Button variant="ghost" size="sm" onClick={onOpenAiTest} title="AI Test Generator" className="h-7 px-2"><Brain className="w-3.5 h-3.5 text-pink-500" /></Button>
           </div>
         )}
       </CardContent>
@@ -2503,6 +3409,15 @@ function Dashboard() {
   const [clipboardDevice, setClipboardDevice] = useState<DeviceInfo | null>(null);
   const [networkDevice, setNetworkDevice] = useState<DeviceInfo | null>(null);
   const [snapshotsDevice, setSnapshotsDevice] = useState<DeviceInfo | null>(null);
+  // New advanced feature dialogs
+  const [healthDevice, setHealthDevice] = useState<DeviceInfo | null>(null);
+  const [gpsDevice, setGpsDevice] = useState<DeviceInfo | null>(null);
+  const [smsCallDevice, setSmsCallDevice] = useState<DeviceInfo | null>(null);
+  const [localeDevice, setLocaleDevice] = useState<DeviceInfo | null>(null);
+  const [debugDevice, setDebugDevice] = useState<DeviceInfo | null>(null);
+  const [autoTestDevice, setAutoTestDevice] = useState<DeviceInfo | null>(null);
+  const [aiTestDevice, setAiTestDevice] = useState<DeviceInfo | null>(null);
+  const [showScreenshotCompare, setShowScreenshotCompare] = useState(false);
   // Multi-device selection
   const [selectedDevices, setSelectedDevices] = useState<Set<string>>(new Set());
 
@@ -2620,6 +3535,18 @@ function Dashboard() {
                 <div className="text-sm font-medium text-gray-700 dark:text-gray-300">{runningCount} of {totalCount} devices running</div>
                 <div className="text-xs text-gray-400">Auto-refreshes every 15s</div>
               </div>
+              <VoiceControlButton onCommand={(cmd) => {
+                const lower = cmd.toLowerCase();
+                if (lower.includes("create") || lower.includes("new device")) {
+                  alert(`Voice command: "${cmd}" — Use the Create Device dialog to set up a new device.`);
+                } else if (lower.includes("delete") || lower.includes("remove")) {
+                  alert(`Voice command: "${cmd}" — Select a device and click the delete button.`);
+                } else if (lower.includes("screenshot") || lower.includes("compare")) {
+                  setShowScreenshotCompare(true);
+                } else {
+                  alert(`Voice command received: "${cmd}"`);
+                }
+              }} />
               <NotificationCenter />
               <Button variant="outline" size="sm" onClick={toggleDark} className="h-8 w-8 sm:h-9 sm:w-9 p-0" title="Toggle dark mode">
                 {dark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
@@ -2685,6 +3612,20 @@ function Dashboard() {
                 <Key className="w-4 h-4" /> <span className="hidden sm:inline">API Keys</span>
               </TabsTrigger>
             )}
+            <TabsTrigger value="pools" className="gap-1.5">
+              <Boxes className="w-4 h-4" /> <span className="hidden sm:inline">Pools</span>
+            </TabsTrigger>
+            <TabsTrigger value="scheduling" className="gap-1.5">
+              <Calendar className="w-4 h-4" /> <span className="hidden sm:inline">Scheduling</span>
+            </TabsTrigger>
+            <TabsTrigger value="billing" className="gap-1.5">
+              <DollarSign className="w-4 h-4" /> <span className="hidden sm:inline">Billing</span>
+            </TabsTrigger>
+            {isAdmin && (
+              <TabsTrigger value="webhooks" className="gap-1.5">
+                <Webhook className="w-4 h-4" /> <span className="hidden sm:inline">Webhooks</span>
+              </TabsTrigger>
+            )}
           </TabsList>
 
           <TabsContent value="devices" className="mt-4">
@@ -2719,6 +3660,13 @@ function Dashboard() {
                     onOpenClipboard={() => setClipboardDevice(device)}
                     onOpenNetwork={() => setNetworkDevice(device)}
                     onOpenSnapshots={() => setSnapshotsDevice(device)}
+                    onOpenHealth={() => setHealthDevice(device)}
+                    onOpenGps={() => setGpsDevice(device)}
+                    onOpenSmsCall={() => setSmsCallDevice(device)}
+                    onOpenLocale={() => setLocaleDevice(device)}
+                    onOpenDebug={() => setDebugDevice(device)}
+                    onOpenAutoTest={() => setAutoTestDevice(device)}
+                    onOpenAiTest={() => setAiTestDevice(device)}
                   />
                 ))}
               </div>
@@ -2746,6 +3694,24 @@ function Dashboard() {
           {isAdmin && (
             <TabsContent value="apikeys" className="mt-4">
               <ApiKeysTab />
+            </TabsContent>
+          )}
+
+          <TabsContent value="pools" className="mt-4">
+            <PoolsTagsTab devices={devices} />
+          </TabsContent>
+
+          <TabsContent value="scheduling" className="mt-4">
+            <SchedulingTab devices={devices} />
+          </TabsContent>
+
+          <TabsContent value="billing" className="mt-4">
+            <CostTrackingTab />
+          </TabsContent>
+
+          {isAdmin && (
+            <TabsContent value="webhooks" className="mt-4">
+              <WebhooksTab />
             </TabsContent>
           )}
         </Tabs>
@@ -2784,6 +3750,30 @@ function Dashboard() {
 
       {/* Snapshots */}
       {snapshotsDevice && <SnapshotsDialog device={snapshotsDevice} open={!!snapshotsDevice} onClose={() => setSnapshotsDevice(null)} />}
+
+      {/* Device Health */}
+      {healthDevice && <DeviceHealthDialog device={healthDevice} open={!!healthDevice} onClose={() => setHealthDevice(null)} />}
+
+      {/* GPS Simulation */}
+      {gpsDevice && <GPSSimulatorDialog device={gpsDevice} open={!!gpsDevice} onClose={() => setGpsDevice(null)} />}
+
+      {/* SMS/Call Simulation */}
+      {smsCallDevice && <SMSCallDialog device={smsCallDevice} open={!!smsCallDevice} onClose={() => setSmsCallDevice(null)} />}
+
+      {/* Locale Switcher */}
+      {localeDevice && <LocaleSwitcherDialog device={localeDevice} open={!!localeDevice} onClose={() => setLocaleDevice(null)} />}
+
+      {/* Remote Debug */}
+      {debugDevice && <RemoteDebugDialog device={debugDevice} open={!!debugDevice} onClose={() => setDebugDevice(null)} />}
+
+      {/* Automated Testing */}
+      {autoTestDevice && <AutoTestDialog device={autoTestDevice} open={!!autoTestDevice} onClose={() => setAutoTestDevice(null)} />}
+
+      {/* AI Test Generator */}
+      {aiTestDevice && <AITestGeneratorDialog device={aiTestDevice} open={!!aiTestDevice} onClose={() => setAiTestDevice(null)} />}
+
+      {/* Screenshot Comparison */}
+      <ScreenshotCompareDialog devices={devices} open={showScreenshotCompare} onClose={() => setShowScreenshotCompare(false)} />
 
       {/* Delete Confirmation Dialog */}
       <Dialog open={!!deleteConfirmId} onOpenChange={(v) => !v && setDeleteConfirmId(null)}>

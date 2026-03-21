@@ -743,3 +743,201 @@ async def create_logcat_session(serial: str, filter_tag: str = ""):
     )
     process = await conn.create_process(f"adb -s {serial} logcat{tag_filter}", encoding=None)
     return conn, process
+
+
+# --- Device Health Monitoring ---
+
+async def get_device_health(serial: str) -> dict:
+    """Get device CPU, memory, battery, temperature stats."""
+    cmd = f"""
+echo '===CPU===' && adb -s {serial} shell top -bn1 -m5 2>/dev/null | head -5
+echo '===MEMORY===' && adb -s {serial} shell cat /proc/meminfo 2>/dev/null | head -5
+echo '===BATTERY===' && adb -s {serial} shell dumpsys battery 2>/dev/null | head -15
+echo '===TEMP===' && adb -s {serial} shell cat /sys/class/thermal/thermal_zone0/temp 2>/dev/null
+echo '===UPTIME===' && adb -s {serial} shell uptime 2>/dev/null
+echo '===DISK===' && adb -s {serial} shell df /data 2>/dev/null | tail -1
+"""
+    stdout, _, _ = await run_ssh_command(cmd, timeout=15.0)
+    result = {
+        "cpu_usage": 0.0,
+        "mem_total_mb": 0,
+        "mem_available_mb": 0,
+        "mem_used_mb": 0,
+        "battery_level": -1,
+        "battery_status": "unknown",
+        "battery_temp": 0.0,
+        "temperature_c": 0.0,
+        "uptime": "",
+        "disk_total_mb": 0,
+        "disk_used_mb": 0,
+    }
+    section = ""
+    for line in stdout.split("\n"):
+        line = line.strip()
+        if line.startswith("==="):
+            section = line.strip("=")
+            continue
+        if section == "CPU" and "cpu" in line.lower() and "%" in line:
+            try:
+                # Parse top output for CPU idle
+                parts = line.split()
+                for p in parts:
+                    if "idle" in p.lower() or p.endswith("%idle"):
+                        idle = float(p.replace("%idle", "").replace("%", ""))
+                        result["cpu_usage"] = round(100 - idle, 1)
+                        break
+            except (ValueError, IndexError):
+                pass
+        elif section == "MEMORY":
+            if "MemTotal" in line:
+                try:
+                    result["mem_total_mb"] = int(line.split()[1]) // 1024
+                except (ValueError, IndexError):
+                    pass
+            elif "MemAvailable" in line:
+                try:
+                    result["mem_available_mb"] = int(line.split()[1]) // 1024
+                except (ValueError, IndexError):
+                    pass
+        elif section == "BATTERY":
+            if "level:" in line:
+                try:
+                    result["battery_level"] = int(line.split(":")[-1].strip())
+                except ValueError:
+                    pass
+            elif "status:" in line:
+                val = line.split(":")[-1].strip()
+                statuses = {"1": "unknown", "2": "charging", "3": "discharging", "4": "not charging", "5": "full"}
+                result["battery_status"] = statuses.get(val, val)
+            elif "temperature:" in line:
+                try:
+                    result["battery_temp"] = int(line.split(":")[-1].strip()) / 10.0
+                except ValueError:
+                    pass
+        elif section == "TEMP" and line.isdigit():
+            result["temperature_c"] = int(line) / 1000.0
+        elif section == "UPTIME" and line:
+            result["uptime"] = line
+        elif section == "DISK" and line and not line.startswith("Filesystem"):
+            parts = line.split()
+            if len(parts) >= 4:
+                try:
+                    result["disk_total_mb"] = int(parts[1]) // 1024
+                    result["disk_used_mb"] = int(parts[2]) // 1024
+                except (ValueError, IndexError):
+                    pass
+
+    result["mem_used_mb"] = result["mem_total_mb"] - result["mem_available_mb"]
+    return result
+
+
+# --- GPS Location Simulation ---
+
+async def set_gps_location(serial: str, latitude: float, longitude: float, altitude: float = 0.0) -> bool:
+    """Set mock GPS location on device."""
+    cmd = f"""
+adb -s {serial} shell settings put secure mock_location 1 2>/dev/null
+adb -s {serial} emu geo fix {longitude} {latitude} {altitude} 2>/dev/null && echo 'GPS_OK' || \
+adb -s {serial} shell am broadcast -a android.intent.action.MOCK_LOCATION --ef latitude {latitude} --ef longitude {longitude} 2>/dev/null && echo 'GPS_OK'
+"""
+    stdout, _, _ = await run_ssh_command(cmd, timeout=10.0)
+    return "GPS_OK" in stdout
+
+
+# --- SMS/Call Simulation ---
+
+async def send_sms(serial: str, phone_number: str, message: str) -> bool:
+    """Send a simulated SMS to the device."""
+    safe_msg = message.replace("'", "'\\''")
+    cmd = f"adb -s {serial} emu sms send {phone_number} '{safe_msg}' 2>/dev/null && echo 'SMS_OK'"
+    stdout, _, _ = await run_ssh_command(cmd, timeout=10.0)
+    return "SMS_OK" in stdout
+
+
+async def make_call(serial: str, phone_number: str) -> bool:
+    """Simulate an incoming call."""
+    cmd = f"adb -s {serial} emu gsm call {phone_number} 2>/dev/null && echo 'CALL_OK'"
+    stdout, _, _ = await run_ssh_command(cmd, timeout=10.0)
+    return "CALL_OK" in stdout
+
+
+async def end_call(serial: str, phone_number: str) -> bool:
+    """End a simulated call."""
+    cmd = f"adb -s {serial} emu gsm cancel {phone_number} 2>/dev/null && echo 'CANCEL_OK'"
+    stdout, _, _ = await run_ssh_command(cmd, timeout=10.0)
+    return "CANCEL_OK" in stdout
+
+
+# --- Locale Switching ---
+
+async def set_device_locale(serial: str, locale: str) -> bool:
+    """Change device locale (e.g., 'en-US', 'fr-FR', 'ja-JP')."""
+    cmd = f"""
+adb -s {serial} shell "setprop persist.sys.locale {locale}; setprop persist.sys.language $(echo {locale} | cut -d- -f1); setprop persist.sys.country $(echo {locale} | cut -d- -f2); settings put system system_locales {locale}" 2>/dev/null
+adb -s {serial} shell am broadcast -a android.intent.action.LOCALE_CHANGED 2>/dev/null && echo 'LOCALE_OK'
+"""
+    stdout, _, _ = await run_ssh_command(cmd, timeout=15.0)
+    return "LOCALE_OK" in stdout
+
+
+async def get_device_locale(serial: str) -> str:
+    """Get current device locale."""
+    cmd = f"adb -s {serial} shell getprop persist.sys.locale 2>/dev/null"
+    stdout, _, _ = await run_ssh_command(cmd, timeout=10.0)
+    return stdout.strip() or "en-US"
+
+
+# --- Session Recording (full interaction session) ---
+
+async def get_device_processes(serial: str) -> list[dict]:
+    """List running processes on device."""
+    cmd = f"adb -s {serial} shell ps -A -o PID,USER,NAME,RSS 2>/dev/null | head -50"
+    stdout, _, _ = await run_ssh_command(cmd, timeout=10.0)
+    procs = []
+    for line in stdout.strip().split("\n")[1:]:  # skip header
+        parts = line.split()
+        if len(parts) >= 4:
+            procs.append({
+                "pid": parts[0],
+                "user": parts[1],
+                "name": parts[2],
+                "rss_kb": int(parts[3]) if parts[3].isdigit() else 0,
+            })
+    return procs
+
+
+# --- Device Pools / Tags ---
+# (Managed via database - tags stored in device_metadata)
+
+# --- Cost Tracking ---
+# (Managed via database - usage sessions tracked)
+
+# --- Remote Debugging ---
+
+async def get_webview_debug_url(serial: str) -> str:
+    """Get Chrome DevTools debugging URL for WebViews."""
+    cmd = f"""
+adb -s {serial} shell cat /proc/net/unix 2>/dev/null | grep devtools | head -1
+"""
+    stdout, _, _ = await run_ssh_command(cmd, timeout=10.0)
+    if "devtools" in stdout:
+        return f"chrome://inspect/#devices"
+    return ""
+
+
+# --- Screenshot Comparison ---
+
+async def take_screenshot_for_comparison(serial: str) -> str | None:
+    """Take a screenshot and return base64 for comparison."""
+    return await take_screenshot_base64(serial)
+
+
+# --- Automated Testing ---
+
+async def run_monkey_test(serial: str, package: str, event_count: int = 500) -> tuple[bool, str]:
+    """Run Android monkey test on a package."""
+    cmd = f"adb -s {serial} shell monkey -p {package} -v {event_count} 2>&1 | tail -20"
+    stdout, stderr, rc = await run_ssh_command(cmd, timeout=120.0)
+    output = stdout + stderr
+    success = "Events injected" in output and "CRASH" not in output
+    return success, output

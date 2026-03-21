@@ -346,6 +346,106 @@ export const api = {
   deleteSnapshot: (name: string) =>
     fetchApi(`/api/snapshots/${name}`, { method: "DELETE" }),
 
+  // Device Health
+  getDeviceHealth: (deviceId: string) =>
+    fetchApi<{
+      cpu_usage: number; mem_total_mb: number; mem_available_mb: number; mem_used_mb: number;
+      battery_level: number; battery_status: string; battery_temp: number; temperature_c: number;
+      uptime: string; disk_total_mb: number; disk_used_mb: number;
+    }>(`/api/devices/${deviceId}/health`),
+  getDeviceProcesses: (deviceId: string) =>
+    fetchApi<{ processes: { pid: string; user: string; name: string; rss_kb: number }[] }>(`/api/devices/${deviceId}/processes`),
+
+  // GPS Simulation
+  setGps: (deviceId: string, latitude: number, longitude: number, altitude: number = 0) =>
+    fetchApi(`/api/devices/${deviceId}/gps`, {
+      method: "POST", body: JSON.stringify({ latitude, longitude, altitude }),
+    }),
+  getGpsPresets: () =>
+    fetchApi<{ presets: { name: string; latitude: number; longitude: number }[] }>("/api/gps-presets"),
+
+  // SMS/Call Simulation
+  sendSms: (deviceId: string, phoneNumber: string, message: string) =>
+    fetchApi(`/api/devices/${deviceId}/sms`, {
+      method: "POST", body: JSON.stringify({ phone_number: phoneNumber, message }),
+    }),
+  makeCall: (deviceId: string, phoneNumber: string, action: string = "call") =>
+    fetchApi(`/api/devices/${deviceId}/call`, {
+      method: "POST", body: JSON.stringify({ phone_number: phoneNumber, action }),
+    }),
+
+  // Locale
+  getDeviceLocale: (deviceId: string) =>
+    fetchApi<{ locale: string }>(`/api/devices/${deviceId}/locale`),
+  setDeviceLocale: (deviceId: string, locale: string) =>
+    fetchApi(`/api/devices/${deviceId}/locale`, {
+      method: "POST", body: JSON.stringify({ locale }),
+    }),
+  getLocales: () =>
+    fetchApi<{ locales: { code: string; name: string; flag: string }[] }>("/api/locales"),
+
+  // Device Pools
+  getPools: () =>
+    fetchApi<{ pools: { id: number; name: string; description: string; color: string; devices: string[]; created_at: string }[] }>("/api/pools"),
+  createPool: (name: string, description: string, color: string) =>
+    fetchApi("/api/pools", { method: "POST", body: JSON.stringify({ name, description, color }) }),
+  deletePool: (id: number) => fetchApi(`/api/pools/${id}`, { method: "DELETE" }),
+  addDeviceToPool: (poolId: number, deviceId: string) =>
+    fetchApi(`/api/pools/${poolId}/devices`, { method: "POST", body: JSON.stringify({ device_id: deviceId }) }),
+  removeDeviceFromPool: (poolId: number, deviceId: string) =>
+    fetchApi(`/api/pools/${poolId}/devices/${deviceId}`, { method: "DELETE" }),
+
+  // Device Tags
+  getDeviceTags: (deviceId: string) =>
+    fetchApi<{ tags: { tag: string; color: string }[] }>(`/api/devices/${deviceId}/tags`),
+  addDeviceTag: (deviceId: string, tag: string, color: string = "#3b82f6") =>
+    fetchApi(`/api/devices/${deviceId}/tags`, { method: "POST", body: JSON.stringify({ tag, color }) }),
+  removeDeviceTag: (deviceId: string, tag: string) =>
+    fetchApi(`/api/devices/${deviceId}/tags/${tag}`, { method: "DELETE" }),
+
+  // Scheduling
+  getSchedules: () =>
+    fetchApi<{ schedules: { id: number; device_id: string; user_id: number; title: string; start_time: string; end_time: string; status: string; username: string }[] }>("/api/schedules"),
+  createSchedule: (deviceId: string, userId: number, title: string, startTime: string, endTime: string) =>
+    fetchApi("/api/schedules", { method: "POST", body: JSON.stringify({ device_id: deviceId, user_id: userId, title, start_time: startTime, end_time: endTime }) }),
+  deleteSchedule: (id: number) => fetchApi(`/api/schedules/${id}`, { method: "DELETE" }),
+
+  // Cost Tracking / Usage
+  getUsage: (deviceId?: string) =>
+    fetchApi<{ sessions: { id: number; device_id: string; started_at: string; ended_at: string | null; duration_seconds: number; cost_cents: number }[]; total_cost_cents: number; total_hours: number }>(
+      deviceId ? `/api/usage?device_id=${deviceId}` : "/api/usage"
+    ),
+  startUsageSession: (deviceId: string, userId?: number) =>
+    fetchApi<{ session_id: number }>("/api/usage/start", { method: "POST", body: JSON.stringify({ device_id: deviceId, user_id: userId }) }),
+  endUsageSession: (sessionId: number) =>
+    fetchApi(`/api/usage/${sessionId}/end`, { method: "POST" }),
+
+  // Webhooks
+  getWebhooks: () =>
+    fetchApi<{ webhooks: { id: number; name: string; url: string; events: string; secret: string; is_active: number; created_at: string; last_triggered: string | null }[] }>("/api/webhooks"),
+  createWebhook: (name: string, url: string, events: string[], secret: string = "") =>
+    fetchApi("/api/webhooks", { method: "POST", body: JSON.stringify({ name, url, events, secret }) }),
+  deleteWebhook: (id: number) => fetchApi(`/api/webhooks/${id}`, { method: "DELETE" }),
+  toggleWebhook: (id: number) => fetchApi(`/api/webhooks/${id}/toggle`, { method: "PUT" }),
+
+  // Screenshot Comparison
+  compareScreenshots: (deviceId: string, otherDeviceId: string, name?: string) =>
+    fetchApi<{ screenshot_a: string | null; screenshot_b: string | null; name: string }>(
+      `/api/devices/${deviceId}/screenshot-compare`, { method: "POST", body: JSON.stringify({ other_device_id: otherDeviceId, name }) }
+    ),
+  getScreenshotComparisons: () =>
+    fetchApi<{ comparisons: { id: number; name: string; device_id_a: string; device_id_b: string; created_at: string }[] }>("/api/screenshot-comparisons"),
+
+  // Remote Debugging
+  getDebugInfo: (deviceId: string) =>
+    fetchApi<{ adb_connect: string; chrome_inspect: string; adb_forward: string; webrtc_url: string }>(`/api/devices/${deviceId}/debug-info`),
+
+  // Automated Testing
+  runMonkeyTest: (deviceId: string, packageName: string, eventCount: number = 500) =>
+    fetchApi<{ success: boolean; output: string }>(`/api/devices/${deviceId}/test/monkey`, {
+      method: "POST", body: JSON.stringify({ package: packageName, event_count: eventCount }),
+    }),
+
   // Server
   getServerStatus: () => fetchApi<ServerStatus>("/api/server/status"),
   getAndroidVersions: () => fetchApi<AndroidVersion[]>("/api/android-versions"),

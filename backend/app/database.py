@@ -93,6 +93,72 @@ async def init_db():
                 details TEXT DEFAULT '{}',
                 created_at TEXT NOT NULL DEFAULT (datetime('now'))
             );
+
+            CREATE TABLE IF NOT EXISTS device_tags (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                device_id TEXT NOT NULL,
+                tag TEXT NOT NULL,
+                color TEXT DEFAULT '#3b82f6',
+                UNIQUE(device_id, tag)
+            );
+
+            CREATE TABLE IF NOT EXISTS device_pools (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT UNIQUE NOT NULL,
+                description TEXT DEFAULT '',
+                color TEXT DEFAULT '#3b82f6',
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+
+            CREATE TABLE IF NOT EXISTS device_pool_members (
+                pool_id INTEGER NOT NULL,
+                device_id TEXT NOT NULL,
+                PRIMARY KEY (pool_id, device_id),
+                FOREIGN KEY (pool_id) REFERENCES device_pools(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS usage_sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                device_id TEXT NOT NULL,
+                user_id INTEGER,
+                started_at TEXT NOT NULL DEFAULT (datetime('now')),
+                ended_at TEXT,
+                duration_seconds INTEGER DEFAULT 0,
+                cost_cents INTEGER DEFAULT 0
+            );
+
+            CREATE TABLE IF NOT EXISTS device_schedules (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                device_id TEXT NOT NULL,
+                user_id INTEGER NOT NULL,
+                title TEXT NOT NULL,
+                start_time TEXT NOT NULL,
+                end_time TEXT NOT NULL,
+                status TEXT DEFAULT 'scheduled',
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS webhooks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                url TEXT NOT NULL,
+                events TEXT DEFAULT '["device.created","device.deleted"]',
+                secret TEXT DEFAULT '',
+                is_active INTEGER DEFAULT 1,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                last_triggered TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS screenshot_comparisons (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                device_id_a TEXT NOT NULL,
+                device_id_b TEXT NOT NULL,
+                screenshot_a TEXT,
+                screenshot_b TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
         """)
         await db.commit()
 
