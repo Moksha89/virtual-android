@@ -1,10 +1,13 @@
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from dotenv import load_dotenv
 import os
 import json
+import asyncio
+import secrets
+import hashlib
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -38,6 +41,26 @@ from app.ssh_manager import (
     run_adb_command,
     take_screenshot_base64,
     PUBLIC_IP,
+    list_device_files,
+    pull_file_base64,
+    push_file_from_base64,
+    delete_device_file,
+    list_installed_apps,
+    install_apk_from_base64,
+    uninstall_app,
+    force_stop_app,
+    clear_app_data,
+    start_screen_recording,
+    stop_screen_recording,
+    get_screen_recording_base64,
+    get_clipboard,
+    set_clipboard,
+    set_network_throttle,
+    create_snapshot,
+    list_snapshots,
+    delete_snapshot,
+    create_adb_shell_session,
+    create_logcat_session,
 )
 from app.auth import (
     hash_password,
@@ -893,6 +916,556 @@ async def is_delete_passcode_required():
         return {"required": bool(row and row[0])}
     finally:
         await db.close()
+
+
+# --- File Manager ---
+
+
+def _get_serial(device_id: str) -> str:
+    """Get ADB serial from device ID."""
+    iid = int(device_id.replace("cvd-", ""))
+    port = 6520 + iid - 1
+    return f"0.0.0.0:{port}"
+
+
+@app.get("/api/devices/{device_id}/files")
+async def device_list_files(device_id: str, path: str = "/sdcard"):
+    serial = _get_serial(device_id)
+    files = await list_device_files(serial, path)
+    return {"path": path, "files": files}
+
+
+@app.get("/api/devices/{device_id}/files/download")
+async def device_download_file(device_id: str, path: str):
+    serial = _get_serial(device_id)
+    data = await pull_file_base64(serial, path)
+    if not data:
+        raise HTTPException(status_code=404, detail="File not found or empty")
+    return {"data": data, "filename": path.split("/")[-1]}
+
+
+@app.post("/api/devices/{device_id}/files/upload")
+async def device_upload_file(device_id: str, body: dict):
+    serial = _get_serial(device_id)
+    remote_path = body.get("path", "/sdcard/")
+    data_b64 = body.get("data", "")
+    filename = body.get("filename", "uploaded_file")
+    if not data_b64:
+        raise HTTPException(status_code=400, detail="No data provided")
+    full_path = f"{remote_path.rstrip('/')}/{filename}"
+    ok = await push_file_from_base64(serial, full_path, data_b64)
+    if not ok:
+        raise HTTPException(status_code=500, detail="Upload failed")
+    return {"message": f"Uploaded to {full_path}"}
+
+
+@app.delete("/api/devices/{device_id}/files")
+async def device_delete_file(device_id: str, path: str):
+    serial = _get_serial(device_id)
+    ok = await delete_device_file(serial, path)
+    if not ok:
+        raise HTTPException(status_code=500, detail="Delete failed")
+    return {"message": "Deleted"}
+
+
+# --- App Management ---
+
+
+@app.get("/api/devices/{device_id}/apps")
+async def device_list_apps(device_id: str):
+    serial = _get_serial(device_id)
+    apps = await list_installed_apps(serial)
+    return {"apps": apps}
+
+
+@app.post("/api/devices/{device_id}/apps/install")
+async def device_install_apk(device_id: str, body: dict):
+    serial = _get_serial(device_id)
+    data_b64 = body.get("data", "")
+    filename = body.get("filename", "app.apk")
+    if not data_b64:
+        raise HTTPException(status_code=400, detail="No APK data provided")
+    ok, msg = await install_apk_from_base64(serial, data_b64, filename)
+    if not ok:
+        raise HTTPException(status_code=500, detail=msg)
+    # Log analytics
+    db = await get_db()
+    try:
+        await db.execute(
+            "INSERT INTO analytics_events (event_type, device_id, details) VALUES (?, ?, ?)",
+            ("app_install", device_id, json.dumps({"filename": filename})),
+        )
+        await db.commit()
+    finally:
+        await db.close()
+    return {"message": msg}
+
+
+@app.delete("/api/devices/{device_id}/apps/{package}")
+async def device_uninstall_app(device_id: str, package: str):
+    serial = _get_serial(device_id)
+    ok, msg = await uninstall_app(serial, package)
+    if not ok:
+        raise HTTPException(status_code=500, detail=msg)
+    return {"message": msg}
+
+
+@app.post("/api/devices/{device_id}/apps/{package}/stop")
+async def device_force_stop(device_id: str, package: str):
+    serial = _get_serial(device_id)
+    await force_stop_app(serial, package)
+    return {"message": f"Force stopped {package}"}
+
+
+@app.post("/api/devices/{device_id}/apps/{package}/clear")
+async def device_clear_data(device_id: str, package: str):
+    serial = _get_serial(device_id)
+    ok = await clear_app_data(serial, package)
+    return {"message": f"Data cleared for {package}" if ok else "Clear failed"}
+
+
+# --- Screen Recording ---
+
+
+@app.post("/api/devices/{device_id}/recording/start")
+async def device_start_recording(device_id: str, body: dict = {}):
+    serial = _get_serial(device_id)
+    duration = body.get("duration", 180)
+    ok = await start_screen_recording(serial, duration)
+    if not ok:
+        raise HTTPException(status_code=500, detail="Failed to start recording")
+    return {"message": "Recording started"}
+
+
+@app.post("/api/devices/{device_id}/recording/stop")
+async def device_stop_recording(device_id: str):
+    serial = _get_serial(device_id)
+    await stop_screen_recording(serial)
+    return {"message": "Recording stopped"}
+
+
+@app.get("/api/devices/{device_id}/recording/download")
+async def device_download_recording(device_id: str):
+    serial = _get_serial(device_id)
+    data = await get_screen_recording_base64(serial)
+    if not data:
+        raise HTTPException(status_code=404, detail="No recording found")
+    return {"data": data, "filename": "recording.mp4"}
+
+
+# --- Clipboard ---
+
+
+@app.get("/api/devices/{device_id}/clipboard")
+async def device_get_clipboard(device_id: str):
+    serial = _get_serial(device_id)
+    text = await get_clipboard(serial)
+    return {"text": text}
+
+
+@app.post("/api/devices/{device_id}/clipboard")
+async def device_set_clipboard(device_id: str, body: dict):
+    serial = _get_serial(device_id)
+    text = body.get("text", "")
+    ok = await set_clipboard(serial, text)
+    return {"message": "Clipboard set" if ok else "Failed"}
+
+
+# --- Network Throttling ---
+
+
+@app.post("/api/devices/{device_id}/network")
+async def device_network_throttle(device_id: str, body: dict):
+    serial = _get_serial(device_id)
+    profile = body.get("profile", "none")
+    ok, msg = await set_network_throttle(serial, profile)
+    return {"success": ok, "message": msg}
+
+
+@app.get("/api/network-profiles")
+async def list_network_profiles():
+    return {"profiles": [
+        {"id": "none", "name": "No Throttling", "description": "Full speed connection"},
+        {"id": "4g", "name": "4G LTE", "description": "30ms delay, 10Mbps"},
+        {"id": "3g", "name": "3G", "description": "100ms delay, 1Mbps"},
+        {"id": "2g", "name": "2G / Edge", "description": "300ms delay, 50Kbps"},
+        {"id": "lossy", "name": "Lossy Network", "description": "200ms delay, 10% packet loss"},
+    ]}
+
+
+# --- Multi-device Actions ---
+
+
+@app.post("/api/devices/bulk-action")
+async def bulk_device_action(body: dict):
+    device_ids = body.get("device_ids", [])
+    action = body.get("action", "")
+    params = body.get("params", {})
+    if not device_ids or not action:
+        raise HTTPException(status_code=400, detail="device_ids and action required")
+    results = {}
+    for did in device_ids:
+        serial = _get_serial(did)
+        try:
+            if action == "reboot":
+                stdout, _, _ = await run_adb_command(serial, "reboot")
+                results[did] = {"success": True, "message": "Rebooting"}
+            elif action == "screenshot":
+                data = await take_screenshot_base64(serial)
+                results[did] = {"success": bool(data), "message": "Screenshot taken" if data else "Failed"}
+            elif action == "keyevent":
+                keycode = params.get("keycode", "KEYCODE_HOME")
+                await run_adb_command(serial, f"input keyevent {keycode}")
+                results[did] = {"success": True, "message": f"Sent {keycode}"}
+            elif action == "install_apk":
+                data_b64 = params.get("data", "")
+                if data_b64:
+                    ok, msg = await install_apk_from_base64(serial, data_b64)
+                    results[did] = {"success": ok, "message": msg}
+                else:
+                    results[did] = {"success": False, "message": "No APK data"}
+            else:
+                results[did] = {"success": False, "message": f"Unknown action: {action}"}
+        except Exception as e:
+            results[did] = {"success": False, "message": str(e)}
+    return {"results": results}
+
+
+# --- Device Templates ---
+
+
+@app.get("/api/templates")
+async def list_templates():
+    db = await get_db()
+    try:
+        cursor = await db.execute("SELECT * FROM device_templates ORDER BY created_at DESC")
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        await db.close()
+
+
+@app.post("/api/templates")
+async def create_template(body: dict):
+    db = await get_db()
+    try:
+        await db.execute(
+            """INSERT INTO device_templates (name, description, profile_id, android_version, os_type, ram_mb, storage_gb, cpus, gpu_mode, pre_installed_apps)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                body.get("name", ""),
+                body.get("description", ""),
+                body.get("profile_id", ""),
+                body.get("android_version", "14"),
+                body.get("os_type", "aosp"),
+                body.get("ram_mb", 4096),
+                body.get("storage_gb", 64),
+                body.get("cpus", 4),
+                body.get("gpu_mode", "guest_swiftshader"),
+                json.dumps(body.get("pre_installed_apps", [])),
+            ),
+        )
+        await db.commit()
+        return {"message": "Template created"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        await db.close()
+
+
+@app.delete("/api/templates/{template_id}")
+async def delete_template(template_id: int):
+    db = await get_db()
+    try:
+        await db.execute("DELETE FROM device_templates WHERE id = ?", (template_id,))
+        await db.commit()
+        return {"message": "Template deleted"}
+    finally:
+        await db.close()
+
+
+# --- API Keys ---
+
+
+@app.get("/api/admin/api-keys")
+async def list_api_keys():
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT ak.id, ak.name, ak.key_prefix, ak.permissions, ak.is_active, ak.created_at, ak.last_used, u.username FROM api_keys ak JOIN users u ON ak.user_id = u.id ORDER BY ak.created_at DESC"
+        )
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        await db.close()
+
+
+@app.post("/api/admin/api-keys")
+async def create_api_key(body: dict):
+    name = body.get("name", "")
+    user_id = body.get("user_id", 1)
+    permissions = body.get("permissions", ["read"])
+    if not name:
+        raise HTTPException(status_code=400, detail="Name required")
+    raw_key = f"mch_{secrets.token_urlsafe(32)}"
+    key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
+    key_prefix = raw_key[:12] + "..."
+    db = await get_db()
+    try:
+        await db.execute(
+            "INSERT INTO api_keys (name, key_hash, key_prefix, user_id, permissions) VALUES (?, ?, ?, ?, ?)",
+            (name, key_hash, key_prefix, user_id, json.dumps(permissions)),
+        )
+        await db.commit()
+        return {"key": raw_key, "prefix": key_prefix, "message": "API key created. Save this key - it won't be shown again."}
+    finally:
+        await db.close()
+
+
+@app.delete("/api/admin/api-keys/{key_id}")
+async def delete_api_key(key_id: int):
+    db = await get_db()
+    try:
+        await db.execute("DELETE FROM api_keys WHERE id = ?", (key_id,))
+        await db.commit()
+        return {"message": "API key deleted"}
+    finally:
+        await db.close()
+
+
+# --- Notifications ---
+
+
+@app.get("/api/notifications")
+async def list_notifications(limit: int = 50):
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT * FROM notifications ORDER BY created_at DESC LIMIT ?", (limit,)
+        )
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        await db.close()
+
+
+@app.post("/api/notifications")
+async def create_notification(body: dict):
+    db = await get_db()
+    try:
+        await db.execute(
+            "INSERT INTO notifications (type, title, message, device_id) VALUES (?, ?, ?, ?)",
+            (body.get("type", "info"), body.get("title", ""), body.get("message", ""), body.get("device_id")),
+        )
+        await db.commit()
+        return {"message": "Notification created"}
+    finally:
+        await db.close()
+
+
+@app.put("/api/notifications/{notif_id}/read")
+async def mark_notification_read(notif_id: int):
+    db = await get_db()
+    try:
+        await db.execute("UPDATE notifications SET is_read = 1 WHERE id = ?", (notif_id,))
+        await db.commit()
+        return {"message": "Marked as read"}
+    finally:
+        await db.close()
+
+
+@app.put("/api/notifications/read-all")
+async def mark_all_notifications_read():
+    db = await get_db()
+    try:
+        await db.execute("UPDATE notifications SET is_read = 1")
+        await db.commit()
+        return {"message": "All marked as read"}
+    finally:
+        await db.close()
+
+
+@app.delete("/api/notifications/{notif_id}")
+async def delete_notification(notif_id: int):
+    db = await get_db()
+    try:
+        await db.execute("DELETE FROM notifications WHERE id = ?", (notif_id,))
+        await db.commit()
+        return {"message": "Deleted"}
+    finally:
+        await db.close()
+
+
+# --- Analytics ---
+
+
+@app.get("/api/analytics/summary")
+async def analytics_summary():
+    db = await get_db()
+    try:
+        # Total events
+        cursor = await db.execute("SELECT COUNT(*) FROM analytics_events")
+        total = (await cursor.fetchone())[0]
+        # Events by type
+        cursor = await db.execute("SELECT event_type, COUNT(*) as count FROM analytics_events GROUP BY event_type ORDER BY count DESC")
+        by_type = [dict(r) for r in await cursor.fetchall()]
+        # Events last 24h
+        cursor = await db.execute("SELECT COUNT(*) FROM analytics_events WHERE created_at > datetime('now', '-1 day')")
+        last_24h = (await cursor.fetchone())[0]
+        # Events by device
+        cursor = await db.execute("SELECT device_id, COUNT(*) as count FROM analytics_events WHERE device_id IS NOT NULL GROUP BY device_id ORDER BY count DESC LIMIT 10")
+        by_device = [dict(r) for r in await cursor.fetchall()]
+        # Events timeline (last 7 days, grouped by day)
+        cursor = await db.execute(
+            "SELECT date(created_at) as day, COUNT(*) as count FROM analytics_events WHERE created_at > datetime('now', '-7 days') GROUP BY day ORDER BY day"
+        )
+        timeline = [dict(r) for r in await cursor.fetchall()]
+        return {
+            "total_events": total,
+            "events_last_24h": last_24h,
+            "by_type": by_type,
+            "by_device": by_device,
+            "timeline": timeline,
+        }
+    finally:
+        await db.close()
+
+
+@app.post("/api/analytics/event")
+async def log_analytics_event(body: dict):
+    db = await get_db()
+    try:
+        await db.execute(
+            "INSERT INTO analytics_events (event_type, device_id, user_id, details) VALUES (?, ?, ?, ?)",
+            (body.get("event_type", ""), body.get("device_id"), body.get("user_id"), json.dumps(body.get("details", {}))),
+        )
+        await db.commit()
+        return {"message": "Event logged"}
+    finally:
+        await db.close()
+
+
+# --- Snapshots ---
+
+
+@app.get("/api/snapshots")
+async def api_list_snapshots():
+    snaps = await list_snapshots()
+    return {"snapshots": snaps}
+
+
+@app.post("/api/devices/{device_id}/snapshots")
+async def api_create_snapshot(device_id: str, body: dict):
+    serial = _get_serial(device_id)
+    name = body.get("name", f"snap_{device_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
+    ok, msg = await create_snapshot(serial, name)
+    if not ok:
+        raise HTTPException(status_code=500, detail=msg)
+    # Log analytics
+    db = await get_db()
+    try:
+        await db.execute(
+            "INSERT INTO analytics_events (event_type, device_id, details) VALUES (?, ?, ?)",
+            ("snapshot_create", device_id, json.dumps({"name": name})),
+        )
+        await db.commit()
+    finally:
+        await db.close()
+    return {"message": msg}
+
+
+@app.delete("/api/snapshots/{name}")
+async def api_delete_snapshot(name: str):
+    ok = await delete_snapshot(name)
+    if not ok:
+        raise HTTPException(status_code=500, detail="Failed to delete snapshot")
+    return {"message": "Snapshot deleted"}
+
+
+# --- WebSocket: ADB Terminal ---
+
+
+@app.websocket("/ws/terminal/{device_id}")
+async def ws_terminal(websocket: WebSocket, device_id: str):
+    await websocket.accept()
+    serial = _get_serial(device_id)
+    conn = None
+    try:
+        conn, process = await create_adb_shell_session(serial)
+
+        async def read_output():
+            try:
+                while True:
+                    data = await process.stdout.read(4096)
+                    if not data:
+                        break
+                    await websocket.send_text(data.decode("utf-8", errors="replace"))
+            except Exception:
+                pass
+
+        read_task = asyncio.create_task(read_output())
+
+        try:
+            while True:
+                text = await websocket.receive_text()
+                process.stdin.write(text.encode("utf-8"))
+        except WebSocketDisconnect:
+            pass
+        finally:
+            read_task.cancel()
+    except Exception as e:
+        try:
+            await websocket.send_text(f"\r\nError: {e}\r\n")
+        except Exception:
+            pass
+    finally:
+        if conn:
+            conn.close()
+
+
+# --- WebSocket: Logcat ---
+
+
+@app.websocket("/ws/logcat/{device_id}")
+async def ws_logcat(websocket: WebSocket, device_id: str):
+    await websocket.accept()
+    serial = _get_serial(device_id)
+    conn = None
+    try:
+        filter_tag = ""
+        # Try to get filter from query params
+        conn, process = await create_logcat_session(serial, filter_tag)
+
+        async def read_output():
+            try:
+                while True:
+                    data = await process.stdout.read(4096)
+                    if not data:
+                        break
+                    await websocket.send_text(data.decode("utf-8", errors="replace"))
+            except Exception:
+                pass
+
+        read_task = asyncio.create_task(read_output())
+
+        try:
+            while True:
+                msg = await websocket.receive_text()
+                # Client can send filter commands
+                if msg.startswith("FILTER:"):
+                    pass  # Could implement dynamic filtering
+        except WebSocketDisconnect:
+            pass
+        finally:
+            read_task.cancel()
+    except Exception as e:
+        try:
+            await websocket.send_text(f"Error: {e}\n")
+        except Exception:
+            pass
+    finally:
+        if conn:
+            conn.close()
 
 
 # --- Server Status ---

@@ -225,6 +225,127 @@ export const api = {
   deleteDeviceWithPasscode: (deviceId: string, passcode: string) =>
     fetchApi(`/api/devices/${deviceId}?passcode=${encodeURIComponent(passcode)}`, { method: "DELETE" }),
 
+  // File Manager
+  listFiles: (deviceId: string, path: string = "/sdcard") =>
+    fetchApi<{ path: string; files: { name: string; is_dir: boolean; size: number; permissions: string }[] }>(
+      `/api/devices/${deviceId}/files?path=${encodeURIComponent(path)}`
+    ),
+  downloadFile: (deviceId: string, path: string) =>
+    fetchApi<{ data: string; filename: string }>(
+      `/api/devices/${deviceId}/files/download?path=${encodeURIComponent(path)}`
+    ),
+  uploadFile: (deviceId: string, path: string, data: string, filename: string) =>
+    fetchApi(`/api/devices/${deviceId}/files/upload`, {
+      method: "POST",
+      body: JSON.stringify({ path, data, filename }),
+    }),
+  deleteFile: (deviceId: string, path: string) =>
+    fetchApi(`/api/devices/${deviceId}/files?path=${encodeURIComponent(path)}`, { method: "DELETE" }),
+
+  // App Management
+  listApps: (deviceId: string) =>
+    fetchApi<{ apps: { package: string; apk_path: string }[] }>(`/api/devices/${deviceId}/apps`),
+  installApk: (deviceId: string, data: string, filename: string) =>
+    fetchApi(`/api/devices/${deviceId}/apps/install`, {
+      method: "POST",
+      body: JSON.stringify({ data, filename }),
+    }),
+  uninstallApp: (deviceId: string, pkg: string) =>
+    fetchApi(`/api/devices/${deviceId}/apps/${pkg}`, { method: "DELETE" }),
+  forceStopApp: (deviceId: string, pkg: string) =>
+    fetchApi(`/api/devices/${deviceId}/apps/${pkg}/stop`, { method: "POST" }),
+  clearAppData: (deviceId: string, pkg: string) =>
+    fetchApi(`/api/devices/${deviceId}/apps/${pkg}/clear`, { method: "POST" }),
+
+  // Screen Recording
+  startRecording: (deviceId: string, duration: number = 180) =>
+    fetchApi(`/api/devices/${deviceId}/recording/start`, {
+      method: "POST",
+      body: JSON.stringify({ duration }),
+    }),
+  stopRecording: (deviceId: string) =>
+    fetchApi(`/api/devices/${deviceId}/recording/stop`, { method: "POST" }),
+  downloadRecording: (deviceId: string) =>
+    fetchApi<{ data: string; filename: string }>(`/api/devices/${deviceId}/recording/download`),
+
+  // Clipboard
+  getClipboard: (deviceId: string) =>
+    fetchApi<{ text: string }>(`/api/devices/${deviceId}/clipboard`),
+  setClipboard: (deviceId: string, text: string) =>
+    fetchApi(`/api/devices/${deviceId}/clipboard`, {
+      method: "POST",
+      body: JSON.stringify({ text }),
+    }),
+
+  // Network Throttling
+  setNetworkThrottle: (deviceId: string, profile: string) =>
+    fetchApi(`/api/devices/${deviceId}/network`, {
+      method: "POST",
+      body: JSON.stringify({ profile }),
+    }),
+  getNetworkProfiles: () =>
+    fetchApi<{ profiles: { id: string; name: string; description: string }[] }>("/api/network-profiles"),
+
+  // Multi-device Actions
+  bulkAction: (deviceIds: string[], action: string, params: Record<string, unknown> = {}) =>
+    fetchApi<{ results: Record<string, { success: boolean; message: string }> }>("/api/devices/bulk-action", {
+      method: "POST",
+      body: JSON.stringify({ device_ids: deviceIds, action, params }),
+    }),
+
+  // Device Templates
+  getTemplates: () => fetchApi<{ id: number; name: string; description: string; profile_id: string; android_version: string; os_type: string; ram_mb: number; storage_gb: number; cpus: number; gpu_mode: string; pre_installed_apps: string; created_at: string }[]>("/api/templates"),
+  createTemplate: (data: Record<string, unknown>) =>
+    fetchApi("/api/templates", { method: "POST", body: JSON.stringify(data) }),
+  deleteTemplate: (id: number) =>
+    fetchApi(`/api/templates/${id}`, { method: "DELETE" }),
+
+  // API Keys
+  getApiKeys: () => fetchApi<{ id: number; name: string; key_prefix: string; permissions: string; is_active: number; created_at: string; last_used: string | null; username: string }[]>("/api/admin/api-keys"),
+  createApiKey: (name: string, userId: number, permissions: string[] = ["read"]) =>
+    fetchApi<{ key: string; prefix: string; message: string }>("/api/admin/api-keys", {
+      method: "POST",
+      body: JSON.stringify({ name, user_id: userId, permissions }),
+    }),
+  deleteApiKey: (id: number) =>
+    fetchApi(`/api/admin/api-keys/${id}`, { method: "DELETE" }),
+
+  // Notifications
+  getNotifications: (limit: number = 50) =>
+    fetchApi<{ id: number; type: string; title: string; message: string; device_id: string | null; is_read: number; created_at: string }[]>(`/api/notifications?limit=${limit}`),
+  markNotificationRead: (id: number) =>
+    fetchApi(`/api/notifications/${id}/read`, { method: "PUT" }),
+  markAllNotificationsRead: () =>
+    fetchApi("/api/notifications/read-all", { method: "PUT" }),
+  deleteNotification: (id: number) =>
+    fetchApi(`/api/notifications/${id}`, { method: "DELETE" }),
+
+  // Analytics
+  getAnalyticsSummary: () =>
+    fetchApi<{
+      total_events: number;
+      events_last_24h: number;
+      by_type: { event_type: string; count: number }[];
+      by_device: { device_id: string; count: number }[];
+      timeline: { day: string; count: number }[];
+    }>("/api/analytics/summary"),
+  logEvent: (eventType: string, deviceId?: string, userId?: number, details?: Record<string, unknown>) =>
+    fetchApi("/api/analytics/event", {
+      method: "POST",
+      body: JSON.stringify({ event_type: eventType, device_id: deviceId, user_id: userId, details }),
+    }),
+
+  // Snapshots
+  getSnapshots: () =>
+    fetchApi<{ snapshots: { name: string }[] }>("/api/snapshots"),
+  createSnapshot: (deviceId: string, name: string) =>
+    fetchApi(`/api/devices/${deviceId}/snapshots`, {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    }),
+  deleteSnapshot: (name: string) =>
+    fetchApi(`/api/snapshots/${name}`, { method: "DELETE" }),
+
   // Server
   getServerStatus: () => fetchApi<ServerStatus>("/api/server/status"),
   getAndroidVersions: () => fetchApi<AndroidVersion[]>("/api/android-versions"),

@@ -3,6 +3,7 @@
 import asyncio
 import asyncssh
 import os
+import base64
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -473,3 +474,249 @@ echo "GAPPS_STATUS:installed_rebooting"
         return True, "GApps downloaded and installed, device rebooting"
     else:
         return False, f"GApps installation failed: {output[:500]}"
+
+
+# --- File Manager ---
+
+async def list_device_files(serial: str, path: str = "/sdcard") -> list[dict]:
+    """List files in a directory on the device."""
+    safe_path = path.replace("'", "'\"'\"'")
+    cmd = f"adb -s {serial} shell 'ls -la \"{safe_path}\" 2>/dev/null' | tail -n +2"
+    stdout, _, rc = await run_ssh_command(cmd, timeout=10.0)
+    files = []
+    for line in stdout.strip().split("\n"):
+        if not line.strip():
+            continue
+        parts = line.split()
+        if len(parts) >= 8:
+            perms = parts[0]
+            size = parts[4] if len(parts) >= 5 else "0"
+            name = " ".join(parts[7:]) if len(parts) >= 8 else parts[-1]
+            if name in (".", ".."):
+                continue
+            is_dir = perms.startswith("d")
+            try:
+                size_int = int(size)
+            except ValueError:
+                size_int = 0
+            files.append({"name": name, "is_dir": is_dir, "size": size_int, "permissions": perms})
+    return files
+
+
+async def pull_file_base64(serial: str, remote_path: str) -> str | None:
+    """Pull a file from device and return as base64."""
+    safe_path = remote_path.replace("'", "'\"'\"'")
+    cmd = f"adb -s {serial} pull '{safe_path}' /tmp/pulled_file 2>/dev/null && base64 -w 0 /tmp/pulled_file && rm -f /tmp/pulled_file"
+    stdout, _, rc = await run_ssh_command(cmd, timeout=30.0)
+    if rc == 0 and stdout.strip():
+        return stdout.strip()
+    return None
+
+
+async def push_file_from_base64(serial: str, remote_path: str, data_b64: str) -> bool:
+    """Push a file to the device from base64 data."""
+    safe_path = remote_path.replace("'", "'\"'\"'")
+    cmd = f"echo '{data_b64}' | base64 -d > /tmp/push_file && adb -s {serial} push /tmp/push_file '{safe_path}' 2>/dev/null && rm -f /tmp/push_file && echo 'PUSH_OK'"
+    stdout, _, _ = await run_ssh_command(cmd, timeout=30.0)
+    return "PUSH_OK" in stdout
+
+
+async def delete_device_file(serial: str, remote_path: str) -> bool:
+    """Delete a file on the device."""
+    safe_path = remote_path.replace("'", "'\"'\"'")
+    cmd = f"adb -s {serial} shell 'rm -rf \"{safe_path}\"' 2>/dev/null && echo 'DEL_OK'"
+    stdout, _, _ = await run_ssh_command(cmd, timeout=10.0)
+    return "DEL_OK" in stdout
+
+
+# --- App Management ---
+
+async def list_installed_apps(serial: str) -> list[dict]:
+    """List installed apps on the device."""
+    cmd = f"adb -s {serial} shell 'pm list packages -f 2>/dev/null'"
+    stdout, _, _ = await run_ssh_command(cmd, timeout=15.0)
+    apps = []
+    for line in stdout.strip().split("\n"):
+        if line.startswith("package:"):
+            rest = line[8:]
+            eq_pos = rest.rfind("=")
+            if eq_pos > 0:
+                apk_path = rest[:eq_pos]
+                package = rest[eq_pos + 1:]
+                apps.append({"package": package, "apk_path": apk_path})
+    return apps
+
+
+async def install_apk_from_base64(serial: str, data_b64: str, filename: str = "app.apk") -> tuple[bool, str]:
+    """Install an APK on the device from base64 data."""
+    cmd = f"echo '{data_b64}' | base64 -d > /tmp/{filename} && adb -s {serial} install -r /tmp/{filename} 2>&1 && rm -f /tmp/{filename}"
+    stdout, stderr, rc = await run_ssh_command(cmd, timeout=60.0)
+    output = stdout + stderr
+    if "Success" in output:
+        return True, "APK installed successfully"
+    return False, f"Install failed: {output[:300]}"
+
+
+async def uninstall_app(serial: str, package: str) -> tuple[bool, str]:
+    """Uninstall an app from the device."""
+    cmd = f"adb -s {serial} uninstall {package} 2>&1"
+    stdout, stderr, _ = await run_ssh_command(cmd, timeout=15.0)
+    output = stdout + stderr
+    if "Success" in output:
+        return True, "App uninstalled"
+    return False, f"Uninstall failed: {output[:200]}"
+
+
+async def force_stop_app(serial: str, package: str) -> bool:
+    """Force stop an app."""
+    cmd = f"adb -s {serial} shell am force-stop {package} 2>/dev/null && echo 'STOP_OK'"
+    stdout, _, _ = await run_ssh_command(cmd, timeout=10.0)
+    return "STOP_OK" in stdout
+
+
+async def clear_app_data(serial: str, package: str) -> bool:
+    """Clear an app's data."""
+    cmd = f"adb -s {serial} shell pm clear {package} 2>/dev/null"
+    stdout, _, _ = await run_ssh_command(cmd, timeout=10.0)
+    return "Success" in stdout
+
+
+# --- Screen Recording ---
+
+async def start_screen_recording(serial: str, duration: int = 180) -> bool:
+    """Start screen recording on the device (max 3 min)."""
+    dur = min(duration, 180)
+    cmd = f"adb -s {serial} shell 'nohup screenrecord --time-limit {dur} /sdcard/recording.mp4 > /dev/null 2>&1 &' && echo 'REC_STARTED'"
+    stdout, _, _ = await run_ssh_command(cmd, timeout=10.0)
+    return "REC_STARTED" in stdout
+
+
+async def stop_screen_recording(serial: str) -> bool:
+    """Stop screen recording."""
+    cmd = f"adb -s {serial} shell 'pkill -2 screenrecord 2>/dev/null; sleep 1' && echo 'REC_STOPPED'"
+    stdout, _, _ = await run_ssh_command(cmd, timeout=10.0)
+    return "REC_STOPPED" in stdout
+
+
+async def get_screen_recording_base64(serial: str) -> str | None:
+    """Pull screen recording and return as base64."""
+    cmd = f"adb -s {serial} pull /sdcard/recording.mp4 /tmp/recording.mp4 2>/dev/null && base64 -w 0 /tmp/recording.mp4 && rm -f /tmp/recording.mp4"
+    stdout, _, rc = await run_ssh_command(cmd, timeout=30.0)
+    if rc == 0 and stdout.strip():
+        return stdout.strip()
+    return None
+
+
+# --- Clipboard ---
+
+async def get_clipboard(serial: str) -> str:
+    """Get clipboard content from the device."""
+    cmd = f"adb -s {serial} shell 'service call clipboard 2 s16 com.android.shell 2>/dev/null | grep -o \"[a-zA-Z0-9 .,!?@#$%^&*()_+-=]\\+\"' 2>/dev/null"
+    stdout, _, _ = await run_ssh_command(cmd, timeout=10.0)
+    return stdout.strip()
+
+
+async def set_clipboard(serial: str, text: str) -> bool:
+    """Set clipboard content on the device."""
+    safe_text = text.replace("'", "'\"'\"'")
+    cmd = f"adb -s {serial} shell 'am broadcast -a clipper.set -e text \"{safe_text}\"' 2>/dev/null; adb -s {serial} shell input text '{safe_text}' 2>/dev/null; echo 'CLIP_SET'"
+    stdout, _, _ = await run_ssh_command(cmd, timeout=10.0)
+    return "CLIP_SET" in stdout
+
+
+# --- Network Throttling ---
+
+async def set_network_throttle(serial: str, profile: str) -> tuple[bool, str]:
+    """Set network throttling on the device. Profiles: none, 2g, 3g, 4g, lossy."""
+    profiles = {
+        "none": "tc qdisc del dev eth0 root 2>/dev/null; echo 'NET_OK'",
+        "2g": "tc qdisc replace dev eth0 root netem delay 300ms 50ms loss 2% rate 50kbit && echo 'NET_OK'",
+        "3g": "tc qdisc replace dev eth0 root netem delay 100ms 20ms loss 1% rate 1mbit && echo 'NET_OK'",
+        "4g": "tc qdisc replace dev eth0 root netem delay 30ms 10ms loss 0.1% rate 10mbit && echo 'NET_OK'",
+        "lossy": "tc qdisc replace dev eth0 root netem delay 200ms 100ms loss 10% rate 500kbit && echo 'NET_OK'",
+    }
+    if profile not in profiles:
+        return False, f"Unknown profile: {profile}"
+    cmd = f"adb -s {serial} shell '{profiles[profile]}'"
+    stdout, _, _ = await run_ssh_command(cmd, timeout=10.0)
+    return "NET_OK" in stdout, f"Network set to {profile}"
+
+
+# --- Snapshots ---
+
+async def create_snapshot(serial: str, snapshot_name: str) -> tuple[bool, str]:
+    """Create a snapshot of the device state."""
+    safe_name = snapshot_name.replace("'", "").replace(" ", "_")
+    cmd = f"""
+SERIAL="{serial}"
+SNAP_DIR="/home/administrator/snapshots/{safe_name}"
+mkdir -p "$SNAP_DIR"
+# Save device properties
+adb -s $SERIAL shell getprop > "$SNAP_DIR/properties.txt" 2>/dev/null
+# Save installed packages list
+adb -s $SERIAL shell pm list packages > "$SNAP_DIR/packages.txt" 2>/dev/null
+# Create a data backup
+adb -s $SERIAL backup -f "$SNAP_DIR/backup.ab" -all -noapk 2>/dev/null &
+sleep 3
+adb -s $SERIAL shell input keyevent 61 2>/dev/null
+adb -s $SERIAL shell input keyevent 66 2>/dev/null
+wait
+echo "SNAPSHOT_CREATED"
+"""
+    stdout, _, _ = await run_ssh_command(cmd, timeout=60.0)
+    if "SNAPSHOT_CREATED" in stdout:
+        return True, f"Snapshot '{safe_name}' created"
+    return False, "Failed to create snapshot"
+
+
+async def list_snapshots() -> list[dict]:
+    """List all snapshots."""
+    cmd = "ls -lt /home/administrator/snapshots/ 2>/dev/null | tail -n +2 | awk '{print $NF}'"
+    stdout, _, _ = await run_ssh_command(cmd, timeout=10.0)
+    snapshots = []
+    for line in stdout.strip().split("\n"):
+        name = line.strip()
+        if name:
+            snapshots.append({"name": name})
+    return snapshots
+
+
+async def delete_snapshot(snapshot_name: str) -> bool:
+    """Delete a snapshot."""
+    safe_name = snapshot_name.replace("'", "").replace("/", "").replace("..", "")
+    cmd = f"rm -rf /home/administrator/snapshots/{safe_name} && echo 'DEL_OK'"
+    stdout, _, _ = await run_ssh_command(cmd, timeout=10.0)
+    return "DEL_OK" in stdout
+
+
+# --- WebSocket Terminal ---
+
+async def create_adb_shell_session(serial: str):
+    """Create an SSH connection for interactive ADB shell. Returns the connection and process."""
+    conn = await asyncssh.connect(
+        SSH_HOST,
+        port=SSH_PORT,
+        username=SSH_USERNAME,
+        password=SSH_PASSWORD,
+        known_hosts=None,
+        connect_timeout=10,
+    )
+    process = await conn.create_process(f"adb -s {serial} shell", encoding=None)
+    return conn, process
+
+
+# --- Logcat ---
+
+async def create_logcat_session(serial: str, filter_tag: str = ""):
+    """Create an SSH connection for streaming logcat. Returns the connection and process."""
+    tag_filter = f" -s {filter_tag}" if filter_tag else ""
+    conn = await asyncssh.connect(
+        SSH_HOST,
+        port=SSH_PORT,
+        username=SSH_USERNAME,
+        password=SSH_PASSWORD,
+        known_hosts=None,
+        connect_timeout=10,
+    )
+    process = await conn.create_process(f"adb -s {serial} logcat{tag_filter}", encoding=None)
+    return conn, process

@@ -41,6 +41,30 @@ import {
   Video,
   Lock,
   AlertTriangle,
+  FolderOpen,
+  Terminal,
+  Package,
+  ScrollText,
+  Disc,
+  Clipboard,
+  Signal,
+  CheckSquare,
+  BarChart3,
+  LayoutTemplate,
+  Key,
+  Bell,
+  Save,
+  Moon,
+  Sun,
+  Upload,
+  Download,
+  File,
+  Folder,
+  Search,
+  Layers,
+  Activity,
+  Clock,
+  Copy,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -1160,6 +1184,818 @@ function AdminPanel({
 }
 
 // --- Device Card ---
+// --- Dark Mode Context ---
+const DarkModeContext = createContext<{ dark: boolean; toggle: () => void }>({ dark: false, toggle: () => {} });
+function useDarkMode() { return useContext(DarkModeContext); }
+function DarkModeProvider({ children }: { children: React.ReactNode }) {
+  const [dark, setDark] = useState(() => localStorage.getItem("dark_mode") === "true");
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", dark);
+    localStorage.setItem("dark_mode", String(dark));
+  }, [dark]);
+  return <DarkModeContext.Provider value={{ dark, toggle: () => setDark(p => !p) }}>{children}</DarkModeContext.Provider>;
+}
+
+// --- File Manager ---
+function FileManagerDialog({ device, open, onClose }: { device: DeviceInfo; open: boolean; onClose: () => void }) {
+  const [currentPath, setCurrentPath] = useState("/sdcard");
+  const [files, setFiles] = useState<{ name: string; is_dir: boolean; size: number; permissions: string }[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const loadFiles = useCallback(async (path: string) => {
+    setLoading(true);
+    try {
+      const res = await api.listFiles(device.id, path);
+      setFiles(res.files);
+      setCurrentPath(path);
+    } catch (e) { console.error(e); }
+    finally { setLoading(false); }
+  }, [device.id]);
+
+  useEffect(() => { if (open) loadFiles(currentPath); }, [open]);
+
+  const navigateTo = (name: string) => {
+    const newPath = `${currentPath}/${name}`.replace(/\/+/g, "/");
+    loadFiles(newPath);
+  };
+  const goBack = () => {
+    const parent = currentPath.split("/").slice(0, -1).join("/") || "/";
+    loadFiles(parent);
+  };
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const b64 = (reader.result as string).split(",")[1];
+      try { await api.uploadFile(device.id, currentPath, b64, file.name); loadFiles(currentPath); } catch (err) { console.error(err); }
+    };
+    reader.readAsDataURL(file);
+  };
+  const handleDownload = async (name: string) => {
+    try {
+      const res = await api.downloadFile(device.id, `${currentPath}/${name}`);
+      const link = document.createElement("a");
+      link.href = `data:application/octet-stream;base64,${res.data}`;
+      link.download = res.filename;
+      link.click();
+    } catch (e) { console.error(e); }
+  };
+  const handleDelete = async (name: string) => {
+    if (!confirm(`Delete ${name}?`)) return;
+    try { await api.deleteFile(device.id, `${currentPath}/${name}`); loadFiles(currentPath); } catch (e) { console.error(e); }
+  };
+  const formatSize = (bytes: number) => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / 1048576).toFixed(1)} MB`;
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2"><FolderOpen className="w-5 h-5" /> File Manager - {device.name}</DialogTitle>
+        </DialogHeader>
+        <div className="flex items-center gap-2 bg-gray-100 dark:bg-gray-800 p-2 rounded text-sm">
+          <Button variant="ghost" size="sm" onClick={goBack} disabled={currentPath === "/"}><ArrowLeft className="w-4 h-4" /></Button>
+          <code className="flex-1 truncate">{currentPath}</code>
+          <label className="cursor-pointer">
+            <input type="file" className="hidden" onChange={handleUpload} />
+            <Button variant="outline" size="sm" asChild><span><Upload className="w-4 h-4 mr-1" /> Upload</span></Button>
+          </label>
+          <Button variant="ghost" size="sm" onClick={() => loadFiles(currentPath)}><RefreshCw className="w-4 h-4" /></Button>
+        </div>
+        <div className="flex-1 overflow-y-auto border rounded">
+          {loading ? (
+            <div className="p-8 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto" /></div>
+          ) : files.length === 0 ? (
+            <div className="p-8 text-center text-gray-500">Empty directory</div>
+          ) : (
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 dark:bg-gray-800 sticky top-0">
+                <tr><th className="text-left p-2">Name</th><th className="text-right p-2 w-24">Size</th><th className="text-right p-2 w-20">Actions</th></tr>
+              </thead>
+              <tbody>
+                {files.map((f) => (
+                  <tr key={f.name} className="border-t hover:bg-gray-50 dark:hover:bg-gray-800">
+                    <td className="p-2">
+                      {f.is_dir ? (
+                        <button className="flex items-center gap-2 text-blue-600 hover:underline" onClick={() => navigateTo(f.name)}>
+                          <Folder className="w-4 h-4" />{f.name}
+                        </button>
+                      ) : (
+                        <span className="flex items-center gap-2"><File className="w-4 h-4 text-gray-400" />{f.name}</span>
+                      )}
+                    </td>
+                    <td className="p-2 text-right text-gray-500">{f.is_dir ? "-" : formatSize(f.size)}</td>
+                    <td className="p-2 text-right">
+                      {!f.is_dir && <Button variant="ghost" size="sm" onClick={() => handleDownload(f.name)}><Download className="w-3.5 h-3.5" /></Button>}
+                      <Button variant="ghost" size="sm" onClick={() => handleDelete(f.name)} className="text-red-500"><Trash2 className="w-3.5 h-3.5" /></Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// --- ADB Terminal ---
+function ADBTerminalDialog({ device, open, onClose }: { device: DeviceInfo; open: boolean; onClose: () => void }) {
+  const [output, setOutput] = useState<string[]>([]);
+  const [input, setInput] = useState("");
+  const [connected, setConnected] = useState(false);
+  const wsRef = useRef<WebSocket | null>(null);
+  const outputRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const ws = new WebSocket(`${proto}//${window.location.host}/ws/terminal/${device.id}`);
+    wsRef.current = ws;
+    ws.onopen = () => { setConnected(true); setOutput(["Connected to ADB shell...\n"]); };
+    ws.onmessage = (e) => { setOutput(prev => [...prev.slice(-500), e.data]); };
+    ws.onclose = () => { setConnected(false); setOutput(prev => [...prev, "\n--- Disconnected ---\n"]); };
+    ws.onerror = () => { setConnected(false); };
+    return () => { ws.close(); };
+  }, [open, device.id]);
+
+  useEffect(() => { outputRef.current?.scrollTo(0, outputRef.current.scrollHeight); }, [output]);
+
+  const sendCommand = () => {
+    if (!input.trim() || !wsRef.current) return;
+    wsRef.current.send(input + "\n");
+    setInput("");
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Terminal className="w-5 h-5" /> ADB Terminal - {device.name}
+            <Badge variant={connected ? "default" : "destructive"} className="ml-2">{connected ? "Connected" : "Disconnected"}</Badge>
+          </DialogTitle>
+        </DialogHeader>
+        <div ref={outputRef} className="flex-1 bg-gray-900 text-green-400 font-mono text-xs p-3 rounded overflow-y-auto min-h-[300px] max-h-[60vh] whitespace-pre-wrap">
+          {output.join("")}
+        </div>
+        <div className="flex gap-2">
+          <Input
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && sendCommand()}
+            placeholder="Type ADB command..."
+            className="font-mono text-sm"
+            disabled={!connected}
+          />
+          <Button onClick={sendCommand} disabled={!connected}>Send</Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// --- App Manager ---
+function AppManagerDialog({ device, open, onClose }: { device: DeviceInfo; open: boolean; onClose: () => void }) {
+  const [apps, setApps] = useState<{ package: string; apk_path: string }[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [search, setSearch] = useState("");
+  const [installing, setInstalling] = useState(false);
+
+  const loadApps = useCallback(async () => {
+    setLoading(true);
+    try { const res = await api.listApps(device.id); setApps(res.apps); } catch (e) { console.error(e); }
+    finally { setLoading(false); }
+  }, [device.id]);
+
+  useEffect(() => { if (open) loadApps(); }, [open]);
+
+  const handleInstallApk = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setInstalling(true);
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const b64 = (reader.result as string).split(",")[1];
+      try { await api.installApk(device.id, b64, file.name); loadApps(); } catch (err) { alert("Install failed: " + (err as Error).message); }
+      finally { setInstalling(false); }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleUninstall = async (pkg: string) => {
+    if (!confirm(`Uninstall ${pkg}?`)) return;
+    try { await api.uninstallApp(device.id, pkg); loadApps(); } catch (e) { console.error(e); }
+  };
+
+  const filtered = apps.filter(a => a.package.toLowerCase().includes(search.toLowerCase()));
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2"><Package className="w-5 h-5" /> App Manager - {device.name}</DialogTitle>
+        </DialogHeader>
+        <div className="flex gap-2">
+          <div className="relative flex-1">
+            <Search className="absolute left-2.5 top-2.5 w-4 h-4 text-gray-400" />
+            <Input placeholder="Search packages..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" />
+          </div>
+          <label className="cursor-pointer">
+            <input type="file" accept=".apk" className="hidden" onChange={handleInstallApk} />
+            <Button variant="default" asChild disabled={installing}><span>{installing ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <Upload className="w-4 h-4 mr-1" />}Install APK</span></Button>
+          </label>
+        </div>
+        <div className="flex-1 overflow-y-auto border rounded max-h-[50vh]">
+          {loading ? (
+            <div className="p-8 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto" /></div>
+          ) : (
+            <div className="divide-y">
+              {filtered.map((app) => (
+                <div key={app.package} className="flex items-center justify-between p-2 hover:bg-gray-50 dark:hover:bg-gray-800">
+                  <div className="min-w-0">
+                    <div className="text-sm font-mono truncate">{app.package}</div>
+                    <div className="text-xs text-gray-400 truncate">{app.apk_path}</div>
+                  </div>
+                  <div className="flex gap-1 shrink-0">
+                    <Button variant="ghost" size="sm" onClick={() => api.forceStopApp(device.id, app.package)} title="Force Stop"><Square className="w-3.5 h-3.5" /></Button>
+                    <Button variant="ghost" size="sm" onClick={() => handleUninstall(app.package)} className="text-red-500" title="Uninstall"><Trash2 className="w-3.5 h-3.5" /></Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="text-xs text-gray-500">{filtered.length} packages</div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// --- Logcat Viewer ---
+function LogcatDialog({ device, open, onClose }: { device: DeviceInfo; open: boolean; onClose: () => void }) {
+  const [logs, setLogs] = useState<string[]>([]);
+  const [connected, setConnected] = useState(false);
+  const [filter, setFilter] = useState("");
+  const [paused, setPaused] = useState(false);
+  const wsRef = useRef<WebSocket | null>(null);
+  const outputRef = useRef<HTMLDivElement>(null);
+  const pausedRef = useRef(false);
+
+  useEffect(() => { pausedRef.current = paused; }, [paused]);
+
+  useEffect(() => {
+    if (!open) return;
+    const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const ws = new WebSocket(`${proto}//${window.location.host}/ws/logcat/${device.id}`);
+    wsRef.current = ws;
+    ws.onopen = () => setConnected(true);
+    ws.onmessage = (e) => { if (!pausedRef.current) setLogs(prev => [...prev.slice(-1000), e.data]); };
+    ws.onclose = () => setConnected(false);
+    return () => { ws.close(); };
+  }, [open, device.id]);
+
+  useEffect(() => { if (!paused) outputRef.current?.scrollTo(0, outputRef.current.scrollHeight); }, [logs, paused]);
+
+  const getLogColor = (line: string) => {
+    if (line.includes(" E ") || line.includes(" E/")) return "text-red-400";
+    if (line.includes(" W ") || line.includes(" W/")) return "text-yellow-400";
+    if (line.includes(" I ") || line.includes(" I/")) return "text-green-400";
+    if (line.includes(" D ") || line.includes(" D/")) return "text-blue-400";
+    return "text-gray-400";
+  };
+
+  const filteredLogs = filter ? logs.filter(l => l.toLowerCase().includes(filter.toLowerCase())) : logs;
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="max-w-4xl max-h-[85vh] flex flex-col">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <ScrollText className="w-5 h-5" /> Device Logs - {device.name}
+            <Badge variant={connected ? "default" : "destructive"}>{connected ? "Live" : "Disconnected"}</Badge>
+          </DialogTitle>
+        </DialogHeader>
+        <div className="flex gap-2">
+          <Input placeholder="Filter logs..." value={filter} onChange={(e) => setFilter(e.target.value)} className="flex-1 text-sm" />
+          <Button variant={paused ? "default" : "outline"} size="sm" onClick={() => setPaused(!paused)}>{paused ? "Resume" : "Pause"}</Button>
+          <Button variant="outline" size="sm" onClick={() => setLogs([])}>Clear</Button>
+        </div>
+        <div ref={outputRef} className="flex-1 bg-gray-900 font-mono text-xs p-3 rounded overflow-y-auto min-h-[300px] max-h-[60vh]">
+          {filteredLogs.map((line, i) => (
+            <div key={i} className={`whitespace-pre-wrap ${getLogColor(line)}`}>{line}</div>
+          ))}
+        </div>
+        <div className="text-xs text-gray-500">{filteredLogs.length} lines</div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// --- Clipboard Sync ---
+function ClipboardDialog({ device, open, onClose }: { device: DeviceInfo; open: boolean; onClose: () => void }) {
+  const [text, setText] = useState("");
+  const [deviceClip, setDeviceClip] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const getFromDevice = async () => {
+    setLoading(true);
+    try { const res = await api.getClipboard(device.id); setDeviceClip(res.text); } catch (e) { console.error(e); }
+    finally { setLoading(false); }
+  };
+  const sendToDevice = async () => {
+    try { await api.setClipboard(device.id, text); alert("Sent to device clipboard"); } catch (e) { console.error(e); }
+  };
+  const copyToLocal = () => { navigator.clipboard.writeText(deviceClip); };
+
+  useEffect(() => { if (open) getFromDevice(); }, [open]);
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2"><Clipboard className="w-5 h-5" /> Clipboard Sync - {device.name}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div>
+            <Label className="text-sm font-medium">Send to Device</Label>
+            <div className="flex gap-2 mt-1">
+              <Input value={text} onChange={(e) => setText(e.target.value)} placeholder="Text to send..." />
+              <Button onClick={sendToDevice} size="sm"><Copy className="w-4 h-4 mr-1" /> Send</Button>
+            </div>
+          </div>
+          <Separator />
+          <div>
+            <Label className="text-sm font-medium">Device Clipboard</Label>
+            <div className="flex gap-2 mt-1">
+              <Input value={deviceClip} readOnly className="bg-gray-50" />
+              <Button variant="outline" size="sm" onClick={copyToLocal} title="Copy to PC"><Copy className="w-4 h-4" /></Button>
+              <Button variant="outline" size="sm" onClick={getFromDevice}>{loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}</Button>
+            </div>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// --- Network Throttling ---
+function NetworkThrottleDialog({ device, open, onClose }: { device: DeviceInfo; open: boolean; onClose: () => void }) {
+  const [selected, setSelected] = useState("none");
+  const [applying, setApplying] = useState(false);
+  const profiles = [
+    { id: "none", name: "No Throttling", desc: "Full speed connection", icon: <Wifi className="w-5 h-5 text-green-500" /> },
+    { id: "4g", name: "4G LTE", desc: "30ms delay, 10Mbps", icon: <Signal className="w-5 h-5 text-blue-500" /> },
+    { id: "3g", name: "3G", desc: "100ms delay, 1Mbps", icon: <Signal className="w-5 h-5 text-yellow-500" /> },
+    { id: "2g", name: "2G / Edge", desc: "300ms delay, 50Kbps", icon: <Signal className="w-5 h-5 text-orange-500" /> },
+    { id: "lossy", name: "Lossy Network", desc: "200ms delay, 10% loss", icon: <WifiOff className="w-5 h-5 text-red-500" /> },
+  ];
+  const apply = async () => {
+    setApplying(true);
+    try { await api.setNetworkThrottle(device.id, selected); } catch (e) { console.error(e); }
+    finally { setApplying(false); }
+  };
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2"><Signal className="w-5 h-5" /> Network Throttling - {device.name}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-2">
+          {profiles.map(p => (
+            <button key={p.id} onClick={() => setSelected(p.id)}
+              className={`w-full flex items-center gap-3 p-3 rounded-lg border text-left transition ${selected === p.id ? "border-blue-500 bg-blue-50 dark:bg-blue-900/20" : "border-gray-200 hover:border-gray-300"}`}>
+              {p.icon}
+              <div><div className="font-medium text-sm">{p.name}</div><div className="text-xs text-gray-500">{p.desc}</div></div>
+            </button>
+          ))}
+        </div>
+        <Button onClick={apply} disabled={applying} className="w-full">{applying ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : null}Apply</Button>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// --- Screen Recording ---
+function ScreenRecordingControls({ device }: { device: DeviceInfo }) {
+  const [recording, setRecording] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const startRec = async () => { try { await api.startRecording(device.id); setRecording(true); } catch (e) { console.error(e); } };
+  const stopRec = async () => { try { await api.stopRecording(device.id); setRecording(false); } catch (e) { console.error(e); } };
+  const downloadRec = async () => {
+    setDownloading(true);
+    try {
+      const res = await api.downloadRecording(device.id);
+      const link = document.createElement("a");
+      link.href = `data:video/mp4;base64,${res.data}`;
+      link.download = "recording.mp4";
+      link.click();
+    } catch (e) { alert("No recording available"); }
+    finally { setDownloading(false); }
+  };
+  return (
+    <div className="flex gap-1">
+      {recording ? (
+        <Button variant="destructive" size="sm" onClick={stopRec}><Square className="w-3.5 h-3.5 mr-1" /> Stop</Button>
+      ) : (
+        <Button variant="outline" size="sm" onClick={startRec}><Disc className="w-3.5 h-3.5 mr-1 text-red-500" /> Record</Button>
+      )}
+      <Button variant="ghost" size="sm" onClick={downloadRec} disabled={downloading}>
+        {downloading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+      </Button>
+    </div>
+  );
+}
+
+// --- Notification Center ---
+function NotificationCenter() {
+  const [notifications, setNotifications] = useState<{ id: number; type: string; title: string; message: string; device_id: string | null; is_read: number; created_at: string }[]>([]);
+  const [open, setOpen] = useState(false);
+  const loadNotifications = async () => {
+    try { const res = await api.getNotifications(20); setNotifications(res); } catch (e) { console.error(e); }
+  };
+  useEffect(() => { loadNotifications(); const i = setInterval(loadNotifications, 30000); return () => clearInterval(i); }, []);
+  const unreadCount = notifications.filter(n => !n.is_read).length;
+  const markAllRead = async () => { try { await api.markAllNotificationsRead(); loadNotifications(); } catch (e) { console.error(e); } };
+  const typeIcon = (t: string) => {
+    if (t === "error") return <AlertTriangle className="w-4 h-4 text-red-500" />;
+    if (t === "warning") return <AlertTriangle className="w-4 h-4 text-yellow-500" />;
+    return <Bell className="w-4 h-4 text-blue-500" />;
+  };
+
+  return (
+    <DropdownMenu open={open} onOpenChange={setOpen}>
+      <DropdownMenuTrigger asChild>
+        <Button variant="outline" size="sm" className="relative h-8 w-8 sm:h-9 sm:w-9 p-0">
+          <Bell className="w-4 h-4" />
+          {unreadCount > 0 && (
+            <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center">{unreadCount}</span>
+          )}
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-80">
+        <div className="flex items-center justify-between px-3 py-2">
+          <span className="font-semibold text-sm">Notifications</span>
+          {unreadCount > 0 && <Button variant="ghost" size="sm" onClick={markAllRead} className="text-xs h-6">Mark all read</Button>}
+        </div>
+        <DropdownMenuSeparator />
+        <div className="max-h-64 overflow-y-auto">
+          {notifications.length === 0 ? (
+            <div className="p-4 text-center text-sm text-gray-500">No notifications</div>
+          ) : notifications.map(n => (
+            <div key={n.id} className={`px-3 py-2 border-b last:border-0 ${!n.is_read ? "bg-blue-50 dark:bg-blue-900/10" : ""}`}>
+              <div className="flex items-start gap-2">
+                {typeIcon(n.type)}
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-medium">{n.title}</div>
+                  <div className="text-xs text-gray-500 truncate">{n.message}</div>
+                  <div className="text-xs text-gray-400 mt-0.5">{new Date(n.created_at).toLocaleString()}</div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+// --- Analytics Dashboard ---
+function AnalyticsTab() {
+  const [data, setData] = useState<{
+    total_events: number; events_last_24h: number;
+    by_type: { event_type: string; count: number }[];
+    by_device: { device_id: string; count: number }[];
+    timeline: { day: string; count: number }[];
+  } | null>(null);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    (async () => {
+      try { const res = await api.getAnalyticsSummary(); setData(res); } catch (e) { console.error(e); }
+      finally { setLoading(false); }
+    })();
+  }, []);
+
+  if (loading) return <div className="p-8 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto" /></div>;
+  if (!data) return <div className="p-8 text-center text-gray-500">Failed to load analytics</div>;
+
+  const maxTimeline = Math.max(...data.timeline.map(t => t.count), 1);
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <Card><CardContent className="p-4 text-center">
+          <div className="text-3xl font-bold text-blue-600">{data.total_events}</div>
+          <div className="text-sm text-gray-500">Total Events</div>
+        </CardContent></Card>
+        <Card><CardContent className="p-4 text-center">
+          <div className="text-3xl font-bold text-green-600">{data.events_last_24h}</div>
+          <div className="text-sm text-gray-500">Last 24 Hours</div>
+        </CardContent></Card>
+        <Card><CardContent className="p-4 text-center">
+          <div className="text-3xl font-bold text-purple-600">{data.by_device.length}</div>
+          <div className="text-sm text-gray-500">Active Devices</div>
+        </CardContent></Card>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Card>
+          <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><Activity className="w-4 h-4" /> Events by Type</CardTitle></CardHeader>
+          <CardContent>
+            {data.by_type.length === 0 ? <p className="text-sm text-gray-500">No events yet</p> : (
+              <div className="space-y-2">
+                {data.by_type.map(t => (
+                  <div key={t.event_type} className="flex items-center gap-2">
+                    <span className="text-sm w-32 truncate">{t.event_type}</span>
+                    <div className="flex-1 bg-gray-100 rounded-full h-4 overflow-hidden">
+                      <div className="bg-blue-500 h-full rounded-full" style={{ width: `${Math.max((t.count / Math.max(...data.by_type.map(x => x.count), 1)) * 100, 5)}%` }} />
+                    </div>
+                    <span className="text-sm font-medium w-10 text-right">{t.count}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><Clock className="w-4 h-4" /> 7-Day Timeline</CardTitle></CardHeader>
+          <CardContent>
+            {data.timeline.length === 0 ? <p className="text-sm text-gray-500">No activity yet</p> : (
+              <div className="flex items-end gap-1 h-32">
+                {data.timeline.map(t => (
+                  <div key={t.day} className="flex-1 flex flex-col items-center gap-1">
+                    <div className="w-full bg-blue-500 rounded-t" style={{ height: `${Math.max((t.count / maxTimeline) * 100, 4)}%` }} />
+                    <span className="text-xs text-gray-400">{t.day.slice(5)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+// --- Device Templates ---
+function TemplatesTab({ profiles, onLaunch }: { profiles: HardwareProfile[]; onLaunch: (t: Record<string, unknown>) => void }) {
+  const [templates, setTemplates] = useState<{ id: number; name: string; description: string; profile_id: string; android_version: string; ram_mb: number; storage_gb: number; cpus: number; created_at: string }[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showCreate, setShowCreate] = useState(false);
+  const [name, setName] = useState("");
+  const [desc, setDesc] = useState("");
+  const [profileId, setProfileId] = useState("");
+  const [ramMb, setRamMb] = useState(4096);
+  const [storageGb, setStorageGb] = useState(64);
+  const [cpus, setCpus] = useState(4);
+
+  const load = async () => {
+    try { const res = await api.getTemplates(); setTemplates(res); } catch (e) { console.error(e); }
+    finally { setLoading(false); }
+  };
+  useEffect(() => { load(); }, []);
+
+  const handleCreate = async () => {
+    if (!name || !profileId) return;
+    try {
+      await api.createTemplate({ name, description: desc, profile_id: profileId, ram_mb: ramMb, storage_gb: storageGb, cpus });
+      setShowCreate(false); setName(""); setDesc(""); load();
+    } catch (e) { alert((e as Error).message); }
+  };
+
+  if (loading) return <div className="p-8 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto" /></div>;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-between items-center">
+        <h3 className="font-semibold text-lg">Device Templates</h3>
+        <Button size="sm" onClick={() => setShowCreate(true)}><Plus className="w-4 h-4 mr-1" /> New Template</Button>
+      </div>
+      {templates.length === 0 ? (
+        <Card className="py-8"><CardContent className="text-center text-gray-500">
+          <LayoutTemplate className="w-12 h-12 mx-auto text-gray-300 mb-2" />
+          <p>No templates yet. Create one to quickly launch pre-configured devices.</p>
+        </CardContent></Card>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {templates.map(t => {
+            const prof = profiles.find(p => p.id === t.profile_id);
+            return (
+              <Card key={t.id} className="hover:shadow-md transition-shadow">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base flex items-center gap-2"><LayoutTemplate className="w-4 h-4" />{t.name}</CardTitle>
+                  {t.description && <CardDescription>{t.description}</CardDescription>}
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  <div className="text-sm text-gray-500 space-y-1">
+                    <div>Profile: {prof?.name || t.profile_id}</div>
+                    <div>{t.ram_mb}MB RAM | {t.storage_gb}GB | {t.cpus} CPUs</div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button size="sm" className="flex-1" onClick={() => onLaunch({ name: `${t.name}-device`, profile_id: t.profile_id, ram_mb: t.ram_mb, storage_gb: t.storage_gb, cpus: t.cpus, android_version: t.android_version || "14", os_type: "aosp", gpu_mode: "guest_swiftshader" })}>
+                      <Play className="w-3.5 h-3.5 mr-1" /> Launch
+                    </Button>
+                    <Button variant="destructive" size="sm" onClick={async () => { await api.deleteTemplate(t.id); load(); }}><Trash2 className="w-3.5 h-3.5" /></Button>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+      <Dialog open={showCreate} onOpenChange={setShowCreate}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>Create Device Template</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div><Label>Name</Label><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g., QA Testing Setup" /></div>
+            <div><Label>Description</Label><Input value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Optional description" /></div>
+            <div><Label>Hardware Profile</Label>
+              <Select value={profileId} onValueChange={setProfileId}>
+                <SelectTrigger><SelectValue placeholder="Select profile" /></SelectTrigger>
+                <SelectContent>{profiles.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <div><Label>RAM (MB)</Label><Input type="number" value={ramMb} onChange={(e) => setRamMb(Number(e.target.value))} /></div>
+              <div><Label>Storage (GB)</Label><Input type="number" value={storageGb} onChange={(e) => setStorageGb(Number(e.target.value))} /></div>
+              <div><Label>CPUs</Label><Input type="number" value={cpus} onChange={(e) => setCpus(Number(e.target.value))} /></div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowCreate(false)}>Cancel</Button>
+            <Button onClick={handleCreate} disabled={!name || !profileId}>Create</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// --- API Keys Management ---
+function ApiKeysTab() {
+  const [keys, setKeys] = useState<{ id: number; name: string; key_prefix: string; permissions: string; is_active: number; created_at: string; username: string }[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showCreate, setShowCreate] = useState(false);
+  const [name, setName] = useState("");
+  const [newKey, setNewKey] = useState("");
+
+  const load = async () => {
+    try { const res = await api.getApiKeys(); setKeys(res); } catch (e) { console.error(e); }
+    finally { setLoading(false); }
+  };
+  useEffect(() => { load(); }, []);
+
+  const handleCreate = async () => {
+    if (!name) return;
+    try {
+      const res = await api.createApiKey(name, 1, ["read", "write"]);
+      setNewKey(res.key);
+      setName("");
+      load();
+    } catch (e) { alert((e as Error).message); }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-between items-center">
+        <h3 className="font-semibold text-lg flex items-center gap-2"><Key className="w-5 h-5" /> API Keys</h3>
+        <Button size="sm" onClick={() => { setShowCreate(true); setNewKey(""); }}><Plus className="w-4 h-4 mr-1" /> Create Key</Button>
+      </div>
+      {newKey && (
+        <Card className="bg-green-50 border-green-200">
+          <CardContent className="p-3 space-y-2">
+            <div className="text-sm font-medium text-green-800">New API Key Created - Save this now!</div>
+            <code className="block bg-white p-2 rounded border text-xs break-all select-all">{newKey}</code>
+            <Button variant="outline" size="sm" onClick={() => { navigator.clipboard.writeText(newKey); }}><Copy className="w-3.5 h-3.5 mr-1" /> Copy</Button>
+          </CardContent>
+        </Card>
+      )}
+      <div className="border rounded overflow-hidden">
+        <table className="w-full text-sm">
+          <thead className="bg-gray-50"><tr><th className="text-left p-3">Name</th><th className="text-left p-3">Key</th><th className="text-left p-3">User</th><th className="text-left p-3">Created</th><th className="p-3 w-16"></th></tr></thead>
+          <tbody>
+            {loading ? (
+              <tr><td colSpan={5} className="p-8 text-center"><Loader2 className="w-5 h-5 animate-spin mx-auto" /></td></tr>
+            ) : keys.length === 0 ? (
+              <tr><td colSpan={5} className="p-8 text-center text-gray-500">No API keys</td></tr>
+            ) : keys.map(k => (
+              <tr key={k.id} className="border-t">
+                <td className="p-3 font-medium">{k.name}</td>
+                <td className="p-3 font-mono text-xs">{k.key_prefix}</td>
+                <td className="p-3">{k.username}</td>
+                <td className="p-3 text-gray-500">{new Date(k.created_at).toLocaleDateString()}</td>
+                <td className="p-3"><Button variant="ghost" size="sm" onClick={async () => { await api.deleteApiKey(k.id); load(); }} className="text-red-500"><Trash2 className="w-3.5 h-3.5" /></Button></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <Dialog open={showCreate} onOpenChange={setShowCreate}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Create API Key</DialogTitle></DialogHeader>
+          <div><Label>Key Name</Label><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g., CI/CD Pipeline" /></div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowCreate(false)}>Cancel</Button>
+            <Button onClick={handleCreate} disabled={!name}>Create</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// --- Snapshots Manager ---
+function SnapshotsDialog({ device, open, onClose }: { device: DeviceInfo; open: boolean; onClose: () => void }) {
+  const [snapshots, setSnapshots] = useState<{ name: string }[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [snapName, setSnapName] = useState("");
+
+  const load = async () => {
+    setLoading(true);
+    try { const res = await api.getSnapshots(); setSnapshots(res.snapshots); } catch (e) { console.error(e); }
+    finally { setLoading(false); }
+  };
+  useEffect(() => { if (open) load(); }, [open]);
+
+  const handleCreate = async () => {
+    const name = snapName || `snap_${device.id}_${Date.now()}`;
+    setCreating(true);
+    try { await api.createSnapshot(device.id, name); setSnapName(""); load(); } catch (e) { alert((e as Error).message); }
+    finally { setCreating(false); }
+  };
+  const handleDelete = async (name: string) => {
+    if (!confirm(`Delete snapshot "${name}"?`)) return;
+    try { await api.deleteSnapshot(name); load(); } catch (e) { console.error(e); }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2"><Save className="w-5 h-5" /> Snapshots - {device.name}</DialogTitle>
+        </DialogHeader>
+        <div className="flex gap-2">
+          <Input value={snapName} onChange={(e) => setSnapName(e.target.value)} placeholder="Snapshot name (optional)" className="flex-1" />
+          <Button onClick={handleCreate} disabled={creating}>
+            {creating ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <Save className="w-4 h-4 mr-1" />} Create
+          </Button>
+        </div>
+        <div className="border rounded max-h-64 overflow-y-auto">
+          {loading ? (
+            <div className="p-4 text-center"><Loader2 className="w-5 h-5 animate-spin mx-auto" /></div>
+          ) : snapshots.length === 0 ? (
+            <div className="p-4 text-center text-sm text-gray-500">No snapshots</div>
+          ) : snapshots.map(s => (
+            <div key={s.name} className="flex items-center justify-between p-2 border-b last:border-0">
+              <div className="flex items-center gap-2">
+                <Layers className="w-4 h-4 text-gray-400" />
+                <span className="text-sm">{s.name}</span>
+              </div>
+              <Button variant="ghost" size="sm" onClick={() => handleDelete(s.name)} className="text-red-500"><Trash2 className="w-3.5 h-3.5" /></Button>
+            </div>
+          ))}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// --- Multi-device Action Bar ---
+function MultiDeviceActionBar({ selectedIds, onClearSelection, onRefresh }: {
+  selectedIds: Set<string>; onClearSelection: () => void; onRefresh: () => void;
+}) {
+  const [executing, setExecuting] = useState(false);
+  const runAction = async (action: string) => {
+    setExecuting(true);
+    try {
+      const res = await api.bulkAction(Array.from(selectedIds), action);
+      const failed = Object.entries(res.results).filter(([, v]) => !v.success);
+      if (failed.length > 0) alert(`${failed.length} device(s) failed: ${failed.map(([k, v]) => `${k}: ${v.message}`).join(", ")}`);
+      onRefresh();
+    } catch (e) { alert((e as Error).message); }
+    finally { setExecuting(false); }
+  };
+  if (selectedIds.size === 0) return null;
+  return (
+    <div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 bg-white dark:bg-gray-900 border rounded-xl shadow-2xl px-4 py-3 flex items-center gap-3 z-50">
+      <span className="text-sm font-medium">{selectedIds.size} device(s) selected</span>
+      <Separator orientation="vertical" className="h-6" />
+      <Button variant="outline" size="sm" onClick={() => runAction("reboot")} disabled={executing}>
+        <RotateCcw className="w-3.5 h-3.5 mr-1" /> Reboot All
+      </Button>
+      <Button variant="outline" size="sm" onClick={() => runAction("screenshot")} disabled={executing}>
+        <Camera className="w-3.5 h-3.5 mr-1" /> Screenshot All
+      </Button>
+      <Button variant="ghost" size="sm" onClick={onClearSelection}><X className="w-3.5 h-3.5" /></Button>
+    </div>
+  );
+}
+
 function DeviceCard({
   device,
   onDelete,
@@ -1167,6 +2003,15 @@ function DeviceCard({
   onViewScreen,
   deleting,
   isAdmin,
+  selected,
+  onToggleSelect,
+  onOpenFileManager,
+  onOpenTerminal,
+  onOpenApps,
+  onOpenLogcat,
+  onOpenClipboard,
+  onOpenNetwork,
+  onOpenSnapshots,
 }: {
   device: DeviceInfo;
   onDelete: (id: string) => void;
@@ -1174,20 +2019,30 @@ function DeviceCard({
   onViewScreen: (device: DeviceInfo) => void;
   deleting: boolean;
   isAdmin: boolean;
+  selected: boolean;
+  onToggleSelect: () => void;
+  onOpenFileManager: () => void;
+  onOpenTerminal: () => void;
+  onOpenApps: () => void;
+  onOpenLogcat: () => void;
+  onOpenClipboard: () => void;
+  onOpenNetwork: () => void;
+  onOpenSnapshots: () => void;
 }) {
   return (
-    <Card className="hover:shadow-md transition-shadow">
+    <Card className={`hover:shadow-md transition-shadow ${selected ? "ring-2 ring-blue-500" : ""}`}>
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-gray-100">
+            <button onClick={onToggleSelect} className={`w-5 h-5 rounded border-2 flex items-center justify-center transition ${selected ? "bg-blue-500 border-blue-500 text-white" : "border-gray-300 hover:border-blue-400"}`}>
+              {selected && <CheckSquare className="w-3.5 h-3.5" />}
+            </button>
+            <div className="p-2 rounded-lg bg-gray-100 dark:bg-gray-800">
               <Smartphone className="w-6 h-6" />
             </div>
             <div>
               <CardTitle className="text-base">{device.name}</CardTitle>
-              <CardDescription className="text-xs">
-                {device.profile_name}
-              </CardDescription>
+              <CardDescription className="text-xs">{device.profile_name}</CardDescription>
             </div>
           </div>
           <StatusBadge status={device.status} />
@@ -1195,82 +2050,49 @@ function DeviceCard({
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="grid grid-cols-2 gap-2 text-sm">
-          <div className="flex items-center gap-1.5 text-gray-500">
-            <CircleDot className="w-3.5 h-3.5" />
-            <span>Android {device.android_version}</span>
-          </div>
-          <div className="flex items-center gap-1.5 text-gray-500">
-            <Cpu className="w-3.5 h-3.5" />
-            <span>{device.cpus} CPUs</span>
-          </div>
-          <div className="flex items-center gap-1.5 text-gray-500">
-            <MemoryStick className="w-3.5 h-3.5" />
-            <span>
-              {device.ram_mb >= 1024
-                ? `${(device.ram_mb / 1024).toFixed(0)}GB`
-                : `${device.ram_mb}MB`}{" "}
-              RAM
-            </span>
-          </div>
-          <div className="flex items-center gap-1.5 text-gray-500">
-            <HardDrive className="w-3.5 h-3.5" />
-            <span>{device.storage_gb}GB Storage</span>
-          </div>
+          <div className="flex items-center gap-1.5 text-gray-500"><CircleDot className="w-3.5 h-3.5" /><span>Android {device.android_version}</span></div>
+          <div className="flex items-center gap-1.5 text-gray-500"><Cpu className="w-3.5 h-3.5" /><span>{device.cpus} CPUs</span></div>
+          <div className="flex items-center gap-1.5 text-gray-500"><MemoryStick className="w-3.5 h-3.5" /><span>{device.ram_mb >= 1024 ? `${(device.ram_mb / 1024).toFixed(0)}GB` : `${device.ram_mb}MB`} RAM</span></div>
+          <div className="flex items-center gap-1.5 text-gray-500"><HardDrive className="w-3.5 h-3.5" /><span>{device.storage_gb}GB Storage</span></div>
         </div>
         <Separator />
         <div className="text-xs space-y-1 text-gray-500">
-          <div>
-            Resolution: {device.x_res}x{device.y_res} @ {device.dpi}dpi
-          </div>
-          <div>
-            ADB: {device.ip}:{device.adb_port}
-          </div>
+          <div>Resolution: {device.x_res}x{device.y_res} @ {device.dpi}dpi</div>
+          <div>ADB: {device.ip}:{device.adb_port}</div>
           {device.assigned_users.length > 0 && (
             <div className="flex flex-wrap gap-1 mt-1">
               <span className="text-gray-400">Assigned:</span>
-              {device.assigned_users.map((u) => (
-                <Badge key={u} variant="outline" className="text-xs px-1.5 py-0">
-                  {u}
-                </Badge>
-              ))}
+              {device.assigned_users.map((u) => (<Badge key={u} variant="outline" className="text-xs px-1.5 py-0">{u}</Badge>))}
             </div>
           )}
         </div>
+        {/* Primary actions */}
         <div className="flex gap-2 pt-1">
           {device.status === "running" && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="flex-1"
-              onClick={() => onViewScreen(device)}
-            >
+            <Button variant="outline" size="sm" className="flex-1" onClick={() => onViewScreen(device)}>
               <Eye className="w-3.5 h-3.5 mr-1" /> View Screen
             </Button>
           )}
+          {isAdmin && <Button variant="outline" size="sm" onClick={() => onEdit(device)}><Edit className="w-3.5 h-3.5" /></Button>}
           {isAdmin && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => onEdit(device)}
-            >
-              <Edit className="w-3.5 h-3.5" />
-            </Button>
-          )}
-          {isAdmin && (
-            <Button
-              variant="destructive"
-              size="sm"
-              onClick={() => onDelete(device.id)}
-              disabled={deleting}
-            >
-              {deleting ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              ) : (
-                <Trash2 className="w-3.5 h-3.5" />
-              )}
+            <Button variant="destructive" size="sm" onClick={() => onDelete(device.id)} disabled={deleting}>
+              {deleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
             </Button>
           )}
         </div>
+        {/* Advanced tools */}
+        {device.status === "running" && (
+          <div className="flex flex-wrap gap-1 pt-1">
+            <Button variant="ghost" size="sm" onClick={onOpenFileManager} title="File Manager" className="h-7 px-2"><FolderOpen className="w-3.5 h-3.5" /></Button>
+            <Button variant="ghost" size="sm" onClick={onOpenTerminal} title="ADB Terminal" className="h-7 px-2"><Terminal className="w-3.5 h-3.5" /></Button>
+            <Button variant="ghost" size="sm" onClick={onOpenApps} title="App Manager" className="h-7 px-2"><Package className="w-3.5 h-3.5" /></Button>
+            <Button variant="ghost" size="sm" onClick={onOpenLogcat} title="Device Logs" className="h-7 px-2"><ScrollText className="w-3.5 h-3.5" /></Button>
+            <Button variant="ghost" size="sm" onClick={onOpenClipboard} title="Clipboard Sync" className="h-7 px-2"><Clipboard className="w-3.5 h-3.5" /></Button>
+            <Button variant="ghost" size="sm" onClick={onOpenNetwork} title="Network Throttle" className="h-7 px-2"><Signal className="w-3.5 h-3.5" /></Button>
+            <Button variant="ghost" size="sm" onClick={onOpenSnapshots} title="Snapshots" className="h-7 px-2"><Save className="w-3.5 h-3.5" /></Button>
+            <ScreenRecordingControls device={device} />
+          </div>
+        )}
       </CardContent>
     </Card>
   );
@@ -1657,6 +2479,7 @@ function ProfilesTab({
 
 function Dashboard() {
   const { auth, logout } = useAuth();
+  const { dark, toggle: toggleDark } = useDarkMode();
   const [devices, setDevices] = useState<DeviceInfo[]>([]);
   const [profiles, setProfiles] = useState<HardwareProfile[]>([]);
   const [serverStatus, setServerStatus] = useState<ServerStatus | null>(null);
@@ -1672,8 +2495,26 @@ function Dashboard() {
   const [deletePasscodeInput, setDeletePasscodeInput] = useState("");
   const [deleteError, setDeleteError] = useState("");
   const [passcodeRequired, setPasscodeRequired] = useState(false);
+  // Advanced feature dialogs
+  const [fileManagerDevice, setFileManagerDevice] = useState<DeviceInfo | null>(null);
+  const [terminalDevice, setTerminalDevice] = useState<DeviceInfo | null>(null);
+  const [appManagerDevice, setAppManagerDevice] = useState<DeviceInfo | null>(null);
+  const [logcatDevice, setLogcatDevice] = useState<DeviceInfo | null>(null);
+  const [clipboardDevice, setClipboardDevice] = useState<DeviceInfo | null>(null);
+  const [networkDevice, setNetworkDevice] = useState<DeviceInfo | null>(null);
+  const [snapshotsDevice, setSnapshotsDevice] = useState<DeviceInfo | null>(null);
+  // Multi-device selection
+  const [selectedDevices, setSelectedDevices] = useState<Set<string>>(new Set());
 
   const isAdmin = auth.user?.role === "admin";
+
+  const toggleDeviceSelect = (id: string) => {
+    setSelectedDevices(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
 
   const loadData = useCallback(async () => {
     try {
@@ -1709,7 +2550,6 @@ function Dashboard() {
   }, [loadData]);
 
   const handleDeleteRequest = async (deviceId: string) => {
-    // Check if passcode is required
     try {
       const { required } = await api.isDeletePasscodeRequired();
       setPasscodeRequired(required);
@@ -1740,9 +2580,16 @@ function Dashboard() {
     }
   };
 
+  const handleTemplateLaunch = async (tpl: Record<string, unknown>) => {
+    try {
+      await api.createDevice(tpl as any);
+      await loadData();
+    } catch (e) { alert((e as Error).message); }
+  };
+
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-950">
         <div className="text-center space-y-4">
           <Loader2 className="w-12 h-12 animate-spin mx-auto text-blue-600" />
           <p className="text-gray-500">Loading Dashboard...</p>
@@ -1755,8 +2602,8 @@ function Dashboard() {
   const totalCount = devices.length;
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="border-b border-gray-200 bg-white sticky top-0 z-40">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-950 dark:text-gray-100">
+      <header className="border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 sticky top-0 z-40">
         <div className="container mx-auto px-3 sm:px-6 py-3 sm:py-4">
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 sm:gap-3 min-w-0">
@@ -1764,42 +2611,25 @@ function Dashboard() {
                 <Server className="w-5 h-5 sm:w-6 sm:h-6" />
               </div>
               <div className="min-w-0">
-                <h1 className="text-base sm:text-xl font-bold text-gray-900 truncate">
-                                Manager
-                              </h1>
-                              <p className="text-xs sm:text-sm text-gray-500 hidden sm:block">
-                                Android Virtual Device Dashboard
-                </p>
+                <h1 className="text-base sm:text-xl font-bold text-gray-900 dark:text-gray-100 truncate">Manager</h1>
+                <p className="text-xs sm:text-sm text-gray-500 hidden sm:block">Android Virtual Device Dashboard</p>
               </div>
             </div>
             <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
               <div className="text-right hidden lg:block">
-                <div className="text-sm font-medium text-gray-700">
-                  {runningCount} of {totalCount} devices running
-                </div>
-                <div className="text-xs text-gray-400">
-                  Auto-refreshes every 15s
-                </div>
+                <div className="text-sm font-medium text-gray-700 dark:text-gray-300">{runningCount} of {totalCount} devices running</div>
+                <div className="text-xs text-gray-400">Auto-refreshes every 15s</div>
               </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={refreshData}
-                disabled={refreshing}
-                className="h-8 w-8 sm:h-9 sm:w-9 p-0"
-              >
-                <RefreshCw
-                  className={`w-4 h-4 ${refreshing ? "animate-spin" : ""}`}
-                />
+              <NotificationCenter />
+              <Button variant="outline" size="sm" onClick={toggleDark} className="h-8 w-8 sm:h-9 sm:w-9 p-0" title="Toggle dark mode">
+                {dark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+              </Button>
+              <Button variant="outline" size="sm" onClick={refreshData} disabled={refreshing} className="h-8 w-8 sm:h-9 sm:w-9 p-0">
+                <RefreshCw className={`w-4 h-4 ${refreshing ? "animate-spin" : ""}`} />
               </Button>
               {isAdmin && (
                 <div className="hidden sm:block">
-                  <CreateDeviceDialog
-                    profiles={profiles}
-                    versions={versions}
-                    osTypes={osTypes}
-                    onCreated={loadData}
-                  />
+                  <CreateDeviceDialog profiles={profiles} versions={versions} osTypes={osTypes} onCreated={loadData} />
                 </div>
               )}
               <DropdownMenu>
@@ -1808,18 +2638,14 @@ function Dashboard() {
                     <div className="w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-blue-600 text-white flex items-center justify-center text-xs font-bold">
                       {auth.user?.username?.[0]?.toUpperCase() || "U"}
                     </div>
-                    <span className="hidden md:inline text-sm">
-                      {auth.user?.username}
-                    </span>
+                    <span className="hidden md:inline text-sm">{auth.user?.username}</span>
                     <ChevronDown className="w-3 h-3" />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
                   <DropdownMenuLabel>
                     {auth.user?.username}
-                    <div className="text-xs font-normal text-gray-500">
-                      {auth.user?.role === "admin" ? "Administrator" : "User"}
-                    </div>
+                    <div className="text-xs font-normal text-gray-500">{auth.user?.role === "admin" ? "Administrator" : "User"}</div>
                   </DropdownMenuLabel>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={logout} className="text-red-600">
@@ -1836,16 +2662,27 @@ function Dashboard() {
         <ServerStatusPanel status={serverStatus} />
 
         <Tabs defaultValue="devices">
-          <TabsList>
+          <TabsList className="flex-wrap">
             <TabsTrigger value="devices" className="gap-1.5">
-              <Smartphone className="w-4 h-4" /> Devices ({totalCount})
+              <Smartphone className="w-4 h-4" /> <span className="hidden sm:inline">Devices</span> ({totalCount})
+            </TabsTrigger>
+            <TabsTrigger value="templates" className="gap-1.5">
+              <LayoutTemplate className="w-4 h-4" /> <span className="hidden sm:inline">Templates</span>
+            </TabsTrigger>
+            <TabsTrigger value="analytics" className="gap-1.5">
+              <BarChart3 className="w-4 h-4" /> <span className="hidden sm:inline">Analytics</span>
             </TabsTrigger>
             <TabsTrigger value="profiles" className="gap-1.5">
-              <Zap className="w-4 h-4" /> Hardware Profiles ({profiles.length})
+              <Zap className="w-4 h-4" /> <span className="hidden sm:inline">Profiles</span>
             </TabsTrigger>
             {isAdmin && (
               <TabsTrigger value="admin" className="gap-1.5">
-                <Shield className="w-4 h-4" /> Admin Panel
+                <Shield className="w-4 h-4" /> <span className="hidden sm:inline">Admin</span>
+              </TabsTrigger>
+            )}
+            {isAdmin && (
+              <TabsTrigger value="apikeys" className="gap-1.5">
+                <Key className="w-4 h-4" /> <span className="hidden sm:inline">API Keys</span>
               </TabsTrigger>
             )}
           </TabsList>
@@ -1857,18 +2694,9 @@ function Dashboard() {
                   <Smartphone className="w-16 h-16 mx-auto text-gray-300 mb-4" />
                   <h3 className="text-lg font-medium mb-1">No devices yet</h3>
                   <p className="text-sm text-gray-500 mb-4">
-                    {isAdmin
-                      ? "Create your first Android virtual device to get started."
-                      : "No devices have been assigned to you yet. Contact your administrator."}
+                    {isAdmin ? "Create your first Android virtual device to get started." : "No devices have been assigned to you yet. Contact your administrator."}
                   </p>
-                  {isAdmin && (
-                    <CreateDeviceDialog
-                      profiles={profiles}
-                      versions={versions}
-                      osTypes={osTypes}
-                      onCreated={loadData}
-                    />
-                  )}
+                  {isAdmin && <CreateDeviceDialog profiles={profiles} versions={versions} osTypes={osTypes} onCreated={loadData} />}
                 </CardContent>
               </Card>
             ) : (
@@ -1882,10 +2710,27 @@ function Dashboard() {
                     onViewScreen={setScreenDevice}
                     deleting={deletingDevice === device.id}
                     isAdmin={isAdmin}
+                    selected={selectedDevices.has(device.id)}
+                    onToggleSelect={() => toggleDeviceSelect(device.id)}
+                    onOpenFileManager={() => setFileManagerDevice(device)}
+                    onOpenTerminal={() => setTerminalDevice(device)}
+                    onOpenApps={() => setAppManagerDevice(device)}
+                    onOpenLogcat={() => setLogcatDevice(device)}
+                    onOpenClipboard={() => setClipboardDevice(device)}
+                    onOpenNetwork={() => setNetworkDevice(device)}
+                    onOpenSnapshots={() => setSnapshotsDevice(device)}
                   />
                 ))}
               </div>
             )}
+          </TabsContent>
+
+          <TabsContent value="templates" className="mt-4">
+            <TemplatesTab profiles={profiles} onLaunch={handleTemplateLaunch} />
+          </TabsContent>
+
+          <TabsContent value="analytics" className="mt-4">
+            <AnalyticsTab />
           </TabsContent>
 
           <TabsContent value="profiles" className="mt-4">
@@ -1897,27 +2742,48 @@ function Dashboard() {
               <AdminPanel devices={devices} onRefresh={loadData} />
             </TabsContent>
           )}
+
+          {isAdmin && (
+            <TabsContent value="apikeys" className="mt-4">
+              <ApiKeysTab />
+            </TabsContent>
+          )}
         </Tabs>
       </main>
 
+      {/* Multi-device action bar */}
+      <MultiDeviceActionBar
+        selectedIds={selectedDevices}
+        onClearSelection={() => setSelectedDevices(new Set())}
+        onRefresh={loadData}
+      />
+
       {/* Screen Viewer */}
-      {screenDevice && (
-        <ScreenViewerDialog
-          device={screenDevice}
-          open={!!screenDevice}
-          onClose={() => setScreenDevice(null)}
-        />
-      )}
+      {screenDevice && <ScreenViewerDialog device={screenDevice} open={!!screenDevice} onClose={() => setScreenDevice(null)} />}
 
       {/* Edit Device */}
-      {editDevice && (
-        <EditDeviceDialog
-          device={editDevice}
-          open={!!editDevice}
-          onClose={() => setEditDevice(null)}
-          onSaved={loadData}
-        />
-      )}
+      {editDevice && <EditDeviceDialog device={editDevice} open={!!editDevice} onClose={() => setEditDevice(null)} onSaved={loadData} />}
+
+      {/* File Manager */}
+      {fileManagerDevice && <FileManagerDialog device={fileManagerDevice} open={!!fileManagerDevice} onClose={() => setFileManagerDevice(null)} />}
+
+      {/* ADB Terminal */}
+      {terminalDevice && <ADBTerminalDialog device={terminalDevice} open={!!terminalDevice} onClose={() => setTerminalDevice(null)} />}
+
+      {/* App Manager */}
+      {appManagerDevice && <AppManagerDialog device={appManagerDevice} open={!!appManagerDevice} onClose={() => setAppManagerDevice(null)} />}
+
+      {/* Logcat Viewer */}
+      {logcatDevice && <LogcatDialog device={logcatDevice} open={!!logcatDevice} onClose={() => setLogcatDevice(null)} />}
+
+      {/* Clipboard Sync */}
+      {clipboardDevice && <ClipboardDialog device={clipboardDevice} open={!!clipboardDevice} onClose={() => setClipboardDevice(null)} />}
+
+      {/* Network Throttling */}
+      {networkDevice && <NetworkThrottleDialog device={networkDevice} open={!!networkDevice} onClose={() => setNetworkDevice(null)} />}
+
+      {/* Snapshots */}
+      {snapshotsDevice && <SnapshotsDialog device={snapshotsDevice} open={!!snapshotsDevice} onClose={() => setSnapshotsDevice(null)} />}
 
       {/* Delete Confirmation Dialog */}
       <Dialog open={!!deleteConfirmId} onOpenChange={(v) => !v && setDeleteConfirmId(null)}>
@@ -1934,32 +2800,17 @@ function Dashboard() {
             {passcodeRequired && (
               <div className="space-y-2">
                 <Label htmlFor="confirm-passcode">Enter delete passcode</Label>
-                <Input
-                  id="confirm-passcode"
-                  type="password"
-                  placeholder="Passcode"
-                  value={deletePasscodeInput}
+                <Input id="confirm-passcode" type="password" placeholder="Passcode" value={deletePasscodeInput}
                   onChange={(e) => setDeletePasscodeInput(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && handleDeleteConfirm()}
-                  autoFocus
-                />
+                  onKeyDown={(e) => e.key === "Enter" && handleDeleteConfirm()} autoFocus />
               </div>
             )}
-            {deleteError && (
-              <p className="text-sm text-red-600 bg-red-50 p-2 rounded">{deleteError}</p>
-            )}
+            {deleteError && <p className="text-sm text-red-600 bg-red-50 p-2 rounded">{deleteError}</p>}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteConfirmId(null)}>
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={handleDeleteConfirm}
-              disabled={!!deletingDevice || (passcodeRequired && !deletePasscodeInput)}
-            >
-              {deletingDevice ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <Trash2 className="w-4 h-4 mr-1" />}
-              Delete
+            <Button variant="outline" onClick={() => setDeleteConfirmId(null)}>Cancel</Button>
+            <Button variant="destructive" onClick={handleDeleteConfirm} disabled={!!deletingDevice || (passcodeRequired && !deletePasscodeInput)}>
+              {deletingDevice ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <Trash2 className="w-4 h-4 mr-1" />} Delete
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1970,19 +2821,17 @@ function Dashboard() {
 
 function App() {
   return (
-    <AuthProvider>
-      <AppContent />
-    </AuthProvider>
+    <DarkModeProvider>
+      <AuthProvider>
+        <AppContent />
+      </AuthProvider>
+    </DarkModeProvider>
   );
 }
 
 function AppContent() {
   const { auth } = useAuth();
-
-  if (!auth.token) {
-    return <LoginPage />;
-  }
-
+  if (!auth.token) return <LoginPage />;
   return <Dashboard />;
 }
 
