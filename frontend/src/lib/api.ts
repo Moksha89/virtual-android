@@ -212,6 +212,19 @@ export const api = {
       method: "POST",
     }),
 
+  // Settings
+  getDeletePasscode: () =>
+    fetchApi<{ passcode: string }>("/api/admin/settings/delete-passcode"),
+  setDeletePasscode: (passcode: string) =>
+    fetchApi("/api/admin/settings/delete-passcode", {
+      method: "PUT",
+      body: JSON.stringify({ passcode }),
+    }),
+  isDeletePasscodeRequired: () =>
+    fetchApi<{ required: boolean }>("/api/settings/delete-passcode-required"),
+  deleteDeviceWithPasscode: (deviceId: string, passcode: string) =>
+    fetchApi(`/api/devices/${deviceId}?passcode=${encodeURIComponent(passcode)}`, { method: "DELETE" }),
+
   // Server
   getServerStatus: () => fetchApi<ServerStatus>("/api/server/status"),
   getAndroidVersions: () => fetchApi<AndroidVersion[]>("/api/android-versions"),

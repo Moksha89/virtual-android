@@ -38,6 +38,9 @@ import {
   Type,
   ArrowLeft,
   Menu,
+  Video,
+  Lock,
+  AlertTriangle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -452,15 +455,20 @@ function ScreenViewerDialog({
   const [sending, setSending] = useState(false);
   const [textInput, setTextInput] = useState("");
   const [showKeyboard, setShowKeyboard] = useState(false);
+  const [showCamera, setShowCamera] = useState(false);
   const [orientation, setOrientation] = useState<"portrait" | "landscape">("portrait");
   const [statusMsg, setStatusMsg] = useState("");
   const textInputRef = useRef<HTMLInputElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const cameraStreamRef = useRef<MediaStream | null>(null);
 
   const sendControl = async (action: string, params: Record<string, unknown> = {}) => {
     setSending(true);
     setStatusMsg("");
     try {
       await api.deviceControl(device.id, action, params);
+      setStatusMsg("OK");
+      setTimeout(() => setStatusMsg(""), 1500);
     } catch (e) {
       setStatusMsg(e instanceof Error ? e.message : "Command failed");
     } finally {
@@ -488,9 +496,46 @@ function ScreenViewerDialog({
     }
   };
 
+  const toggleCamera = async () => {
+    if (showCamera) {
+      // Stop camera
+      if (cameraStreamRef.current) {
+        cameraStreamRef.current.getTracks().forEach((t) => t.stop());
+        cameraStreamRef.current = null;
+      }
+      setShowCamera(false);
+    } else {
+      // Start camera
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } },
+          audio: false,
+        });
+        cameraStreamRef.current = stream;
+        setShowCamera(true);
+        setTimeout(() => {
+          if (videoRef.current) {
+            videoRef.current.srcObject = stream;
+          }
+        }, 100);
+      } catch {
+        setStatusMsg("Camera access denied or unavailable");
+      }
+    }
+  };
+
+  // Cleanup camera on unmount
+  useEffect(() => {
+    return () => {
+      if (cameraStreamRef.current) {
+        cameraStreamRef.current.getTracks().forEach((t) => t.stop());
+      }
+    };
+  }, []);
+
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-w-[95vw] md:max-w-6xl max-h-[95vh] flex flex-col p-0 gap-0">
+      <DialogContent className="max-w-[98vw] md:max-w-5xl max-h-[98vh] flex flex-col p-0 gap-0">
         {/* Header */}
         <DialogHeader className="px-3 md:px-4 pt-3 pb-2 shrink-0 border-b border-gray-100">
           <div className="flex items-center justify-between">
@@ -500,9 +545,9 @@ function ScreenViewerDialog({
                 {device.profile_name} | ADB: {device.ip}:{device.adb_port}
               </DialogDescription>
             </div>
-            <div className="flex items-center gap-1 shrink-0">
+            <div className="flex items-center gap-2 shrink-0">
               {statusMsg && (
-                <span className="text-xs text-red-500 max-w-[120px] truncate">{statusMsg}</span>
+                <span className={`text-xs max-w-[150px] truncate ${statusMsg === "OK" ? "text-green-600" : "text-red-500"}`}>{statusMsg}</span>
               )}
               <Button variant="ghost" size="sm" onClick={onClose} className="h-8 w-8 p-0">
                 <X className="w-4 h-4" />
@@ -511,155 +556,89 @@ function ScreenViewerDialog({
           </div>
         </DialogHeader>
 
-        {/* Main content: Screen + Control sidebar */}
-        <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
-          {/* Screen Area */}
-          <div className="flex-1 relative min-h-0">
+        {/* Screen Area */}
+        <div className="flex-1 relative min-h-0 overflow-hidden">
+          {showCamera ? (
+            <div className="w-full h-full flex items-center justify-center bg-black" style={{ minHeight: "250px", height: "calc(98vh - 220px)" }}>
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                muted
+                className="max-w-full max-h-full object-contain"
+              />
+            </div>
+          ) : (
             <iframe
               src={screenUrl}
               className="w-full h-full border-0"
-              style={{ minHeight: "300px", height: "calc(95vh - 180px)" }}
-              allow="autoplay; clipboard-write"
+              style={{ minHeight: "250px", height: "calc(98vh - 220px)" }}
+              allow="autoplay; clipboard-write; camera; microphone"
               title={`${device.name} Screen`}
             />
+          )}
+        </div>
+
+        {/* Control Bar - Always visible below screen */}
+        <div className="shrink-0 border-t border-gray-200 bg-gray-50">
+          {/* Navigation row - Back / Home / Recent */}
+          <div className="flex items-center justify-center gap-3 px-2 py-1.5 border-b border-gray-100">
+            <button
+              onClick={() => handleKeyEvent("KEYCODE_BACK")}
+              disabled={sending}
+              className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium bg-white border border-gray-200 hover:bg-gray-50 active:bg-gray-100 disabled:opacity-50 shadow-sm"
+            >
+              <ArrowLeft className="w-4 h-4" /> Back
+            </button>
+            <button
+              onClick={() => handleKeyEvent("KEYCODE_HOME")}
+              disabled={sending}
+              className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium bg-white border border-gray-200 hover:bg-gray-50 active:bg-gray-100 disabled:opacity-50 shadow-sm"
+            >
+              <Home className="w-4 h-4" /> Home
+            </button>
+            <button
+              onClick={() => handleKeyEvent("KEYCODE_APP_SWITCH")}
+              disabled={sending}
+              className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium bg-white border border-gray-200 hover:bg-gray-50 active:bg-gray-100 disabled:opacity-50 shadow-sm"
+            >
+              <Square className="w-4 h-4" /> Recent
+            </button>
           </div>
 
-          {/* Control Sidebar - Genymotion style */}
-          <div className="w-full md:w-14 shrink-0 bg-gray-50 border-t md:border-t-0 md:border-l border-gray-200">
-            {/* Mobile: horizontal strip, Desktop: vertical strip */}
-            <div className="flex md:flex-col items-center gap-1.5 p-2 overflow-x-auto md:overflow-x-visible">
-              {/* Navigation */}
-              <div className="flex md:flex-col gap-1">
-                <ControlButton
-                  icon={ArrowLeft}
-                  label="Back"
-                  onClick={() => handleKeyEvent("KEYCODE_BACK")}
-                  disabled={sending}
-                  size="sm"
-                />
-                <ControlButton
-                  icon={Home}
-                  label="Home"
-                  onClick={() => handleKeyEvent("KEYCODE_HOME")}
-                  disabled={sending}
-                  size="sm"
-                />
-                <ControlButton
-                  icon={Square}
-                  label="Recent Apps"
-                  onClick={() => handleKeyEvent("KEYCODE_APP_SWITCH")}
-                  disabled={sending}
-                  size="sm"
-                />
-              </div>
-
-              <div className="w-px h-6 md:w-6 md:h-px bg-gray-300 shrink-0" />
-
-              {/* Volume */}
-              <div className="flex md:flex-col gap-1">
-                <ControlButton
-                  icon={Volume2}
-                  label="Volume Up"
-                  onClick={() => handleKeyEvent("KEYCODE_VOLUME_UP")}
-                  disabled={sending}
-                  size="sm"
-                />
-                <ControlButton
-                  icon={VolumeX}
-                  label="Volume Down"
-                  onClick={() => handleKeyEvent("KEYCODE_VOLUME_DOWN")}
-                  disabled={sending}
-                  size="sm"
-                />
-              </div>
-
-              <div className="w-px h-6 md:w-6 md:h-px bg-gray-300 shrink-0" />
-
-              {/* Device controls */}
-              <div className="flex md:flex-col gap-1">
-                <ControlButton
-                  icon={Power}
-                  label="Power"
-                  onClick={() => handleKeyEvent("KEYCODE_POWER")}
-                  disabled={sending}
-                  size="sm"
-                />
-                <ControlButton
-                  icon={RotateCcw}
-                  label={`Rotate (${orientation})`}
-                  onClick={handleRotation}
-                  disabled={sending}
-                  size="sm"
-                />
-                <ControlButton
-                  icon={Camera}
-                  label="Screenshot"
-                  onClick={() => sendControl("screenshot")}
-                  disabled={sending}
-                  size="sm"
-                />
-              </div>
-
-              <div className="w-px h-6 md:w-6 md:h-px bg-gray-300 shrink-0" />
-
-              {/* Input & Apps */}
-              <div className="flex md:flex-col gap-1">
-                <ControlButton
-                  icon={Keyboard}
-                  label="Toggle Keyboard"
-                  onClick={() => {
-                    setShowKeyboard(!showKeyboard);
-                    if (!showKeyboard) {
-                      setTimeout(() => textInputRef.current?.focus(), 100);
-                    }
-                  }}
-                  disabled={sending}
-                  size="sm"
-                  className={showKeyboard ? "bg-blue-50 border-blue-300" : ""}
-                />
-                <ControlButton
-                  icon={Settings}
-                  label="Open Settings"
-                  onClick={() => sendControl("open_settings")}
-                  disabled={sending}
-                  size="sm"
-                />
-                <ControlButton
-                  icon={Play}
-                  label="Open Play Store"
-                  onClick={() => sendControl("open_playstore")}
-                  disabled={sending}
-                  size="sm"
-                />
-              </div>
-
-              <div className="w-px h-6 md:w-6 md:h-px bg-gray-300 shrink-0" />
-
-              {/* Advanced controls */}
-              <div className="flex md:flex-col gap-1">
-                <ControlButton
-                  icon={MapPin}
-                  label="Set GPS Location"
-                  onClick={() => sendControl("gps", { latitude: 37.4220, longitude: -122.0841 })}
-                  disabled={sending}
-                  size="sm"
-                />
-                <ControlButton
-                  icon={Battery}
-                  label="Battery 50%"
-                  onClick={() => sendControl("battery", { level: 50 })}
-                  disabled={sending}
-                  size="sm"
-                />
-                <ControlButton
-                  icon={Menu}
-                  label="Menu"
-                  onClick={() => handleKeyEvent("KEYCODE_MENU")}
-                  disabled={sending}
-                  size="sm"
-                />
-              </div>
-            </div>
+          {/* All control buttons - wrapping grid */}
+          <div className="flex flex-wrap items-center justify-center gap-1.5 px-2 py-2">
+            <ControlButton icon={Volume2} label="Volume Up" onClick={() => handleKeyEvent("KEYCODE_VOLUME_UP")} disabled={sending} size="sm" />
+            <ControlButton icon={VolumeX} label="Volume Down" onClick={() => handleKeyEvent("KEYCODE_VOLUME_DOWN")} disabled={sending} size="sm" />
+            <ControlButton icon={Power} label="Power" onClick={() => handleKeyEvent("KEYCODE_POWER")} disabled={sending} size="sm" />
+            <ControlButton icon={RotateCcw} label={`Rotate (${orientation})`} onClick={handleRotation} disabled={sending} size="sm" />
+            <ControlButton icon={Camera} label="Screenshot" onClick={() => sendControl("screenshot")} disabled={sending} size="sm" />
+            <ControlButton
+              icon={Video}
+              label={showCamera ? "Stop Camera" : "Camera"}
+              onClick={toggleCamera}
+              disabled={sending}
+              size="sm"
+              className={showCamera ? "bg-red-50 border-red-300" : ""}
+            />
+            <ControlButton
+              icon={Keyboard}
+              label="Toggle Keyboard"
+              onClick={() => {
+                setShowKeyboard(!showKeyboard);
+                if (!showKeyboard) {
+                  setTimeout(() => textInputRef.current?.focus(), 100);
+                }
+              }}
+              disabled={sending}
+              size="sm"
+              className={showKeyboard ? "bg-blue-50 border-blue-300" : ""}
+            />
+            <ControlButton icon={Settings} label="Open Settings" onClick={() => sendControl("open_settings")} disabled={sending} size="sm" />
+            <ControlButton icon={Play} label="Open Play Store" onClick={() => sendControl("open_playstore")} disabled={sending} size="sm" />
+            <ControlButton icon={MapPin} label="Set GPS" onClick={() => sendControl("gps", { latitude: 37.4220, longitude: -122.0841 })} disabled={sending} size="sm" />
+            <ControlButton icon={Battery} label="Battery 50%" onClick={() => sendControl("battery", { level: 50 })} disabled={sending} size="sm" />
+            <ControlButton icon={Menu} label="Menu" onClick={() => handleKeyEvent("KEYCODE_MENU")} disabled={sending} size="sm" />
           </div>
         </div>
 
@@ -837,12 +816,20 @@ function AdminPanel({
   const [newPassword, setNewPassword] = useState("");
   const [creating, setCreating] = useState(false);
   const [showCreateUser, setShowCreateUser] = useState(false);
+  const [deletePasscode, setDeletePasscode] = useState("");
+  const [savingPasscode, setSavingPasscode] = useState(false);
+  const [passcodeMsg, setPasscodeMsg] = useState("");
 
   const loadAdmin = useCallback(async () => {
     try {
-      const [u, a] = await Promise.all([api.getUsers(), api.getAssignments()]);
+      const [u, a, pc] = await Promise.all([
+        api.getUsers(),
+        api.getAssignments(),
+        api.getDeletePasscode(),
+      ]);
       setUsers(u);
       setAssignments(a);
+      setDeletePasscode(pc.passcode || "");
     } catch {
       // ignore
     } finally {
@@ -1116,6 +1103,56 @@ function AdminPanel({
               );
             })}
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Delete Passcode Settings */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg flex items-center gap-2">
+            <Lock className="w-5 h-5" /> Delete Passcode
+          </CardTitle>
+          <CardDescription>
+            Set a passcode required to delete devices. Leave empty to disable.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex gap-2 items-end">
+            <div className="flex-1 space-y-1">
+              <Label htmlFor="delete-passcode">Passcode</Label>
+              <Input
+                id="delete-passcode"
+                type="text"
+                placeholder="Enter passcode (leave empty to disable)"
+                value={deletePasscode}
+                onChange={(e) => setDeletePasscode(e.target.value)}
+              />
+            </div>
+            <Button
+              onClick={async () => {
+                setSavingPasscode(true);
+                setPasscodeMsg("");
+                try {
+                  await api.setDeletePasscode(deletePasscode);
+                  setPasscodeMsg(deletePasscode ? "Passcode saved" : "Passcode disabled");
+                  setTimeout(() => setPasscodeMsg(""), 3000);
+                } catch {
+                  setPasscodeMsg("Failed to save");
+                } finally {
+                  setSavingPasscode(false);
+                }
+              }}
+              disabled={savingPasscode}
+            >
+              {savingPasscode ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <Lock className="w-4 h-4 mr-1" />}
+              Save
+            </Button>
+          </div>
+          {passcodeMsg && (
+            <p className={`text-sm mt-2 ${passcodeMsg.includes("Failed") ? "text-red-600" : "text-green-600"}`}>
+              {passcodeMsg}
+            </p>
+          )}
         </CardContent>
       </Card>
     </div>
@@ -1630,6 +1667,11 @@ function Dashboard() {
   const [refreshing, setRefreshing] = useState(false);
   const [screenDevice, setScreenDevice] = useState<DeviceInfo | null>(null);
   const [editDevice, setEditDevice] = useState<DeviceInfo | null>(null);
+  // Delete confirmation state
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [deletePasscodeInput, setDeletePasscodeInput] = useState("");
+  const [deleteError, setDeleteError] = useState("");
+  const [passcodeRequired, setPasscodeRequired] = useState(false);
 
   const isAdmin = auth.user?.role === "admin";
 
@@ -1666,13 +1708,33 @@ function Dashboard() {
     return () => clearInterval(interval);
   }, [loadData]);
 
-  const handleDeleteDevice = async (deviceId: string) => {
-    setDeletingDevice(deviceId);
+  const handleDeleteRequest = async (deviceId: string) => {
+    // Check if passcode is required
     try {
-      await api.deleteDevice(deviceId);
+      const { required } = await api.isDeletePasscodeRequired();
+      setPasscodeRequired(required);
+    } catch {
+      setPasscodeRequired(false);
+    }
+    setDeleteConfirmId(deviceId);
+    setDeletePasscodeInput("");
+    setDeleteError("");
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!deleteConfirmId) return;
+    setDeletingDevice(deleteConfirmId);
+    setDeleteError("");
+    try {
+      if (passcodeRequired) {
+        await api.deleteDeviceWithPasscode(deleteConfirmId, deletePasscodeInput);
+      } else {
+        await api.deleteDevice(deleteConfirmId);
+      }
+      setDeleteConfirmId(null);
       await loadData();
     } catch (e) {
-      console.error("Failed to delete device:", e);
+      setDeleteError(e instanceof Error ? e.message : "Failed to delete device");
     } finally {
       setDeletingDevice(null);
     }
@@ -1683,7 +1745,7 @@ function Dashboard() {
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center space-y-4">
           <Loader2 className="w-12 h-12 animate-spin mx-auto text-blue-600" />
-          <p className="text-gray-500">Loading Cuttlefish Dashboard...</p>
+          <p className="text-gray-500">Loading Dashboard...</p>
         </div>
       </div>
     );
@@ -1703,10 +1765,10 @@ function Dashboard() {
               </div>
               <div className="min-w-0">
                 <h1 className="text-base sm:text-xl font-bold text-gray-900 truncate">
-                  Cuttlefish Manager
-                </h1>
-                <p className="text-xs sm:text-sm text-gray-500 hidden sm:block">
-                  Android Virtual Device Dashboard
+                                Manager
+                              </h1>
+                              <p className="text-xs sm:text-sm text-gray-500 hidden sm:block">
+                                Android Virtual Device Dashboard
                 </p>
               </div>
             </div>
@@ -1815,7 +1877,7 @@ function Dashboard() {
                   <DeviceCard
                     key={device.id}
                     device={device}
-                    onDelete={handleDeleteDevice}
+                    onDelete={handleDeleteRequest}
                     onEdit={setEditDevice}
                     onViewScreen={setScreenDevice}
                     deleting={deletingDevice === device.id}
@@ -1856,6 +1918,52 @@ function Dashboard() {
           onSaved={loadData}
         />
       )}
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={!!deleteConfirmId} onOpenChange={(v) => !v && setDeleteConfirmId(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <AlertTriangle className="w-5 h-5" /> Delete Device
+            </DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete this device? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            {passcodeRequired && (
+              <div className="space-y-2">
+                <Label htmlFor="confirm-passcode">Enter delete passcode</Label>
+                <Input
+                  id="confirm-passcode"
+                  type="password"
+                  placeholder="Passcode"
+                  value={deletePasscodeInput}
+                  onChange={(e) => setDeletePasscodeInput(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleDeleteConfirm()}
+                  autoFocus
+                />
+              </div>
+            )}
+            {deleteError && (
+              <p className="text-sm text-red-600 bg-red-50 p-2 rounded">{deleteError}</p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteConfirmId(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDeleteConfirm}
+              disabled={!!deletingDevice || (passcodeRequired && !deletePasscodeInput)}
+            >
+              {deletingDevice ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <Trash2 className="w-4 h-4 mr-1" />}
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

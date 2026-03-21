@@ -663,10 +663,23 @@ async def edit_device(device_id: str, req: EditDeviceRequest):
 
 
 @app.delete("/api/devices/{device_id}")
-async def delete_device(device_id: str):
-    """Stop and remove a Cuttlefish device."""
+async def delete_device(device_id: str, passcode: str | None = None):
+    """Stop and remove a Cuttlefish device. Requires passcode if set."""
     if not device_id.startswith("cvd-"):
         raise HTTPException(status_code=400, detail="Invalid device ID format")
+
+    # Check if delete passcode is set
+    db = await get_db()
+    try:
+        cursor = await db.execute("SELECT value FROM settings WHERE key = 'delete_passcode'")
+        row = await cursor.fetchone()
+        if row and row[0]:
+            if not passcode:
+                raise HTTPException(status_code=403, detail="Passcode required to delete device")
+            if passcode != row[0]:
+                raise HTTPException(status_code=403, detail="Invalid passcode")
+    finally:
+        await db.close()
 
     try:
         instance_id = int(device_id.replace("cvd-", ""))
@@ -834,6 +847,52 @@ async def install_gapps_endpoint(device_id: str):
     if not success:
         raise HTTPException(status_code=500, detail=message)
     return {"message": message}
+
+
+# --- Settings ---
+
+
+@app.get("/api/admin/settings/delete-passcode")
+async def get_delete_passcode():
+    """Get the current delete passcode (admin only)."""
+    db = await get_db()
+    try:
+        cursor = await db.execute("SELECT value FROM settings WHERE key = 'delete_passcode'")
+        row = await cursor.fetchone()
+        return {"passcode": row[0] if row else ""}
+    finally:
+        await db.close()
+
+
+@app.put("/api/admin/settings/delete-passcode")
+async def set_delete_passcode(data: dict):
+    """Set or update the delete passcode (admin only)."""
+    passcode = data.get("passcode", "")
+    db = await get_db()
+    try:
+        if passcode:
+            await db.execute(
+                "INSERT INTO settings (key, value) VALUES ('delete_passcode', ?) ON CONFLICT(key) DO UPDATE SET value = ?",
+                (passcode, passcode),
+            )
+        else:
+            await db.execute("DELETE FROM settings WHERE key = 'delete_passcode'")
+        await db.commit()
+        return {"message": "Delete passcode updated"}
+    finally:
+        await db.close()
+
+
+@app.get("/api/settings/delete-passcode-required")
+async def is_delete_passcode_required():
+    """Check if a delete passcode is required (public endpoint)."""
+    db = await get_db()
+    try:
+        cursor = await db.execute("SELECT value FROM settings WHERE key = 'delete_passcode'")
+        row = await cursor.fetchone()
+        return {"required": bool(row and row[0])}
+    finally:
+        await db.close()
 
 
 # --- Server Status ---
