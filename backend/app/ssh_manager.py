@@ -204,6 +204,76 @@ echo "STOP_ALL:done"
     return False, f"Failed to stop instances: {output}"
 
 
+async def _setup_device_networking() -> None:
+    """Set up bridge networking and NAT so Cuttlefish devices have internet access.
+
+    Cuttlefish creates tap interfaces (cvd-mtap-XX) for mobile data but does not
+    automatically set up bridges or NAT. This creates the mobile bridge, adds the
+    tap to it, assigns gateway IPs, and configures NAT masquerading.
+    """
+    cmd = """
+# Enable IP forwarding
+echo 1 > /proc/sys/net/ipv4/ip_forward
+
+# Wait for mobile tap interface to appear
+for i in $(seq 1 30); do
+    if ip link show cvd-mtap-01 &>/dev/null; then
+        break
+    fi
+    sleep 1
+done
+
+if ! ip link show cvd-mtap-01 &>/dev/null; then
+    echo "NETSETUP:no_tap"
+    exit 0
+fi
+
+# Create mobile bridge if it doesn't exist
+if ! ip link show cvd-mbr-01 &>/dev/null; then
+    sudo ip link add name cvd-mbr-01 type bridge
+fi
+sudo ip link set cvd-mbr-01 up
+
+# Add mobile tap to bridge
+sudo ip link set cvd-mtap-01 master cvd-mbr-01 2>/dev/null || true
+
+# Assign gateway IPs (10.0.2.2 is what Android RIL ARPs for)
+sudo ip addr add 10.0.2.1/24 dev cvd-mbr-01 2>/dev/null || true
+sudo ip addr add 10.0.2.2/24 dev cvd-mbr-01 2>/dev/null || true
+
+# Enable proxy ARP on the bridge
+echo 1 | sudo tee /proc/sys/net/ipv4/conf/cvd-mbr-01/proxy_arp > /dev/null
+
+# Detect primary outbound interface
+PRIMARY_IF=$(ip route show default | awk '{print $5}' | head -1)
+
+# NAT masquerade for device traffic (idempotent with -C check)
+sudo iptables -t nat -C POSTROUTING -s 10.0.0.0/8 -o $PRIMARY_IF -j MASQUERADE 2>/dev/null || \
+    sudo iptables -t nat -A POSTROUTING -s 10.0.0.0/8 -o $PRIMARY_IF -j MASQUERADE
+
+# Forwarding rules (idempotent)
+sudo iptables -C FORWARD -i cvd-mbr-01 -o $PRIMARY_IF -j ACCEPT 2>/dev/null || \
+    sudo iptables -A FORWARD -i cvd-mbr-01 -o $PRIMARY_IF -j ACCEPT
+sudo iptables -C FORWARD -i $PRIMARY_IF -o cvd-mbr-01 -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null || \
+    sudo iptables -A FORWARD -i $PRIMARY_IF -o cvd-mbr-01 -m state --state RELATED,ESTABLISHED -j ACCEPT
+
+# Configure DNS on the device via ADB
+for serial in $(adb devices | grep -oP '\S+(?=\s+device$)'); do
+    adb -s $serial root 2>/dev/null || true
+    sleep 1
+    adb -s $serial shell 'ip route add default via 10.0.2.1 dev buried_eth0 2>/dev/null || true'
+    adb -s $serial shell 'setprop net.dns1 8.8.8.8'
+    adb -s $serial shell 'setprop net.dns2 8.8.4.4'
+done
+
+echo "NETSETUP:done"
+"""
+    try:
+        await run_ssh_command(cmd, timeout=60.0)
+    except Exception:
+        pass  # Best-effort; don't fail device launch if networking setup fails
+
+
 async def _launch_instances(
     num_instances: int,
     ram_mb: int = 4096,
@@ -273,6 +343,8 @@ fi
     stdout, stderr, rc = await run_ssh_command(cmd, timeout=120.0)
     output = stdout + stderr
     if "LAUNCH_STATUS:starting" in output:
+        # Set up networking in the background so devices get internet access
+        asyncio.ensure_future(_setup_device_networking())
         return True, "Instances are starting..."
     else:
         return False, f"Failed to launch instances: {output}"
