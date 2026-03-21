@@ -391,10 +391,7 @@ GAPPS_ZIP="$GAPPS_DIR/MindTheGapps-14.0.0-x86_64.zip"
 if [ ! -f "$GAPPS_ZIP" ]; then
     mkdir -p "$GAPPS_DIR"
     echo "GAPPS_STATUS:downloading"
-    wget -q "https://github.com/nicholaschum/mindthegapps/releases/download/14.0.0/MindTheGapps-14.0.0-x86_64-20231025_200931.zip" -O "$GAPPS_ZIP" 2>/dev/null || {{
-        # Try alternate URL
-        wget -q "https://androidfilehost.com/?" -O "$GAPPS_ZIP" 2>/dev/null || true
-    }}
+    wget -q "https://github.com/MustardChef/MindTheGapps-14.0.0-x86_64/releases/download/MindTheGapps-14.0.0-x86_64-20250202_012724/MindTheGapps-14.0.0-x86_64-20250202_012724.zip" -O "$GAPPS_ZIP" 2>/dev/null || true
 fi
 
 if [ ! -f "$GAPPS_ZIP" ]; then
@@ -423,18 +420,39 @@ if [ "$GPLAY" -gt 0 ]; then
     exit 0
 fi
 
-# Remount system as writable
+# Remount system as writable - need root + remount, then check if overlayfs needs a reboot
 adb -s $SERIAL root 2>/dev/null
 sleep 2
-adb -s $SERIAL remount 2>/dev/null
-sleep 1
+REMOUNT_OUT=$(adb -s $SERIAL remount 2>&1)
+echo "$REMOUNT_OUT"
+
+# If remount says "Now reboot your device", we need to reboot first to enable overlayfs
+if echo "$REMOUNT_OUT" | grep -q "Now reboot"; then
+    echo "GAPPS_STATUS:overlayfs_reboot"
+    adb -s $SERIAL reboot 2>/dev/null
+    sleep 5
+    # Wait for device to come back
+    for i in $(seq 1 60); do
+        BOOT=$(adb -s $SERIAL shell getprop sys.boot_completed 2>/dev/null | tr -d '\\r')
+        if [ "$BOOT" = "1" ]; then break; fi
+        sleep 3
+    done
+    # Re-root and re-remount after overlayfs reboot
+    adb -s $SERIAL root 2>/dev/null
+    sleep 2
+    adb -s $SERIAL remount 2>/dev/null
+    sleep 1
+else
+    sleep 1
+fi
 
 # Push GApps files
+PUSH_OK=0
 if [ -d "$GAPPS_DIR/system/product" ]; then
-    adb -s $SERIAL push "$GAPPS_DIR/system/product/." /system/product/ 2>/dev/null
+    adb -s $SERIAL push "$GAPPS_DIR/system/product/." /system/product/ 2>&1 && PUSH_OK=1
 fi
 if [ -d "$GAPPS_DIR/system/system_ext" ]; then
-    adb -s $SERIAL push "$GAPPS_DIR/system/system_ext/." /system/system_ext/ 2>/dev/null
+    adb -s $SERIAL push "$GAPPS_DIR/system/system_ext/." /system/system_ext/ 2>&1
 fi
 if [ -d "$GAPPS_DIR/system/priv-app" ]; then
     adb -s $SERIAL push "$GAPPS_DIR/system/priv-app/." /system/priv-app/ 2>/dev/null
@@ -449,6 +467,11 @@ if [ -d "$GAPPS_DIR/system/etc" ]; then
     adb -s $SERIAL push "$GAPPS_DIR/system/etc/." /system/etc/ 2>/dev/null
 fi
 
+if [ "$PUSH_OK" = "0" ]; then
+    echo "GAPPS_STATUS:push_failed"
+    exit 1
+fi
+
 # Disable privapp permission enforcement
 adb -s $SERIAL shell "sed -i 's/ro.control_privapp_permissions=enforce/ro.control_privapp_permissions=disable/' /vendor/build.prop" 2>/dev/null || true
 
@@ -459,7 +482,7 @@ adb -s $SERIAL shell "chmod -R 755 /system/product/priv-app/ /system/product/app
 adb -s $SERIAL reboot 2>/dev/null
 echo "GAPPS_STATUS:installed_rebooting"
 """
-    stdout, stderr, rc = await run_ssh_command(gapps_script, timeout=180.0)
+    stdout, stderr, rc = await run_ssh_command(gapps_script, timeout=360.0)
     output = stdout + stderr
 
     if "GAPPS_STATUS:already_installed" in output:
