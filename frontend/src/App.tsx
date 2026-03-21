@@ -2844,6 +2844,432 @@ function DeviceTagBadges({ deviceId }: { deviceId: string }) {
   );
 }
 
+// --- Session Recording & Playback Dialog ---
+function SessionRecordingDialog({ device, open, onClose }: { device: DeviceInfo; open: boolean; onClose: () => void }) {
+  const [recording, setRecording] = useState(false);
+  const [startTime, setStartTime] = useState<number | null>(null);
+  const [eventsData, setEventsData] = useState("");
+  const [savedRecordings, setSavedRecordings] = useState<{ id: number; name: string; device_id: string; duration_seconds: number; created_at: string }[]>([]);
+  const [saveName, setSaveName] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [status, setStatus] = useState("");
+  const [replaying, setReplaying] = useState(false);
+
+  const loadRecordings = useCallback(async () => {
+    try {
+      const r = await api.getSessionRecordings();
+      setSavedRecordings(r.recordings.filter(rec => rec.device_id === device.id));
+    } catch { /* ignore */ }
+  }, [device.id]);
+
+  useEffect(() => { if (open) loadRecordings(); }, [open, loadRecordings]);
+
+  const handleStart = async () => {
+    setLoading(true);
+    try {
+      await api.startInputRecording(device.id);
+      setRecording(true);
+      setStartTime(Date.now());
+      setStatus("Recording input events...");
+    } catch (e) { setStatus((e as Error).message); }
+    finally { setLoading(false); }
+  };
+
+  const handleStop = async () => {
+    setLoading(true);
+    try {
+      await api.stopInputRecording(device.id);
+      const r = await api.getInputRecording(device.id);
+      setEventsData(r.events);
+      setRecording(false);
+      setStatus(`Captured ${r.line_count} events`);
+    } catch (e) { setStatus((e as Error).message); }
+    finally { setLoading(false); }
+  };
+
+  const handleSave = async () => {
+    if (!saveName.trim() || !eventsData) return;
+    const duration = startTime ? Math.round((Date.now() - startTime) / 1000) : 0;
+    try {
+      await api.saveSessionRecording(saveName, device.id, eventsData, duration);
+      setSaveName("");
+      setEventsData("");
+      setStatus("Recording saved!");
+      await loadRecordings();
+    } catch (e) { setStatus((e as Error).message); }
+  };
+
+  const handleReplay = async (recordingId: number) => {
+    setReplaying(true);
+    setStatus("Replaying...");
+    try {
+      const rec = await api.getSessionRecording(recordingId);
+      await api.replayInputRecording(device.id, rec.events_data);
+      setStatus("Replay complete!");
+    } catch (e) { setStatus((e as Error).message); }
+    finally { setReplaying(false); }
+  };
+
+  const handleDelete = async (id: number) => {
+    await api.deleteSessionRecording(id);
+    await loadRecordings();
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={v => !v && onClose()}>
+      <DialogContent className="max-w-lg max-h-[85vh] flex flex-col">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2"><Play className="w-5 h-5" /> Session Recording — {device.name}</DialogTitle>
+          <DialogDescription>Record and replay input events on the device</DialogDescription>
+        </DialogHeader>
+        <div className="flex-1 overflow-y-auto space-y-4">
+          <div className="flex gap-2">
+            {!recording ? (
+              <Button onClick={handleStart} disabled={loading} variant="default" className="gap-1">
+                <CircleDot className="w-4 h-4 text-red-500" /> Start Recording
+              </Button>
+            ) : (
+              <Button onClick={handleStop} disabled={loading} variant="destructive" className="gap-1">
+                <Square className="w-4 h-4" /> Stop Recording
+              </Button>
+            )}
+          </div>
+          {status && <p className="text-sm text-blue-600">{status}</p>}
+          {eventsData && (
+            <div className="space-y-2">
+              <div className="text-sm font-medium">Captured Events</div>
+              <div className="bg-gray-100 rounded p-2 text-xs font-mono max-h-32 overflow-y-auto whitespace-pre">{eventsData.slice(0, 2000)}</div>
+              <div className="flex gap-2 items-center">
+                <Input placeholder="Recording name" value={saveName} onChange={e => setSaveName(e.target.value)} className="flex-1" />
+                <Button onClick={handleSave} size="sm"><Save className="w-3.5 h-3.5 mr-1" /> Save</Button>
+              </div>
+            </div>
+          )}
+          <Separator />
+          <div className="text-sm font-medium">Saved Recordings</div>
+          {savedRecordings.length === 0 ? (
+            <p className="text-sm text-gray-500">No saved recordings for this device</p>
+          ) : savedRecordings.map(rec => (
+            <div key={rec.id} className="flex items-center justify-between border rounded p-2">
+              <div>
+                <div className="text-sm font-medium">{rec.name}</div>
+                <div className="text-xs text-gray-500">{rec.duration_seconds}s — {new Date(rec.created_at).toLocaleString()}</div>
+              </div>
+              <div className="flex gap-1">
+                <Button variant="outline" size="sm" onClick={() => handleReplay(rec.id)} disabled={replaying}>
+                  <Play className="w-3 h-3 mr-1" /> Replay
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => handleDelete(rec.id)}>
+                  <Trash2 className="w-3 h-3 text-red-500" />
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// --- Custom Boot Animation & Branding Dialog ---
+function BrandingDialog({ device, open, onClose }: { device: DeviceInfo; open: boolean; onClose: () => void }) {
+  const [brand, setBrand] = useState("");
+  const [model, setModel] = useState("");
+  const [manufacturer, setManufacturer] = useState("");
+  const [selectedAnim, setSelectedAnim] = useState("default");
+  const [animations, setAnimations] = useState<{ id: string; name: string; description: string }[]>([]);
+  const [status, setStatus] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    (async () => {
+      try {
+        const [branding, anims] = await Promise.all([
+          api.getDeviceBranding(device.id),
+          api.getBootAnimations(),
+        ]);
+        setBrand(branding.brand || "");
+        setModel(branding.model || "");
+        setManufacturer(branding.manufacturer || "");
+        setSelectedAnim(branding.bootanim || "default");
+        setAnimations(anims.animations);
+      } catch { /* ignore */ }
+    })();
+  }, [open, device.id]);
+
+  const handleSaveBranding = async () => {
+    setLoading(true);
+    try {
+      await api.setDeviceBranding(device.id, brand, model, manufacturer);
+      setStatus("Branding updated!");
+    } catch (e) { setStatus((e as Error).message); }
+    finally { setLoading(false); }
+  };
+
+  const handleSetAnimation = async () => {
+    setLoading(true);
+    try {
+      await api.setBootAnimation(device.id, selectedAnim);
+      setStatus(`Boot animation set to ${selectedAnim}`);
+    } catch (e) { setStatus((e as Error).message); }
+    finally { setLoading(false); }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={v => !v && onClose()}>
+      <DialogContent className="max-w-md max-h-[85vh] flex flex-col">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2"><Edit className="w-5 h-5" /> Branding & Boot Animation — {device.name}</DialogTitle>
+          <DialogDescription>Customize device identity and boot experience</DialogDescription>
+        </DialogHeader>
+        <div className="flex-1 overflow-y-auto space-y-4">
+          <div className="space-y-3">
+            <div className="text-sm font-medium">Device Identity</div>
+            <div className="grid grid-cols-1 gap-2">
+              <div><Label className="text-xs">Brand</Label><Input value={brand} onChange={e => setBrand(e.target.value)} placeholder="Samsung" /></div>
+              <div><Label className="text-xs">Model</Label><Input value={model} onChange={e => setModel(e.target.value)} placeholder="Galaxy S24" /></div>
+              <div><Label className="text-xs">Manufacturer</Label><Input value={manufacturer} onChange={e => setManufacturer(e.target.value)} placeholder="samsung" /></div>
+            </div>
+            <Button onClick={handleSaveBranding} disabled={loading} size="sm"><Save className="w-3.5 h-3.5 mr-1" /> Save Branding</Button>
+          </div>
+          <Separator />
+          <div className="space-y-3">
+            <div className="text-sm font-medium">Boot Animation</div>
+            <div className="grid grid-cols-2 gap-2">
+              {animations.map(a => (
+                <div key={a.id} onClick={() => setSelectedAnim(a.id)}
+                  className={`border rounded-lg p-3 cursor-pointer transition ${selectedAnim === a.id ? "border-blue-500 bg-blue-50" : "hover:border-gray-400"}`}>
+                  <div className="text-sm font-medium">{a.name}</div>
+                  <div className="text-xs text-gray-500">{a.description}</div>
+                </div>
+              ))}
+            </div>
+            <Button onClick={handleSetAnimation} disabled={loading} size="sm"><Zap className="w-3.5 h-3.5 mr-1" /> Apply Animation</Button>
+          </div>
+          {status && <p className="text-sm text-green-600">{status}</p>}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// --- Plugin/Extension System Tab ---
+function PluginsTab() {
+  const [plugins, setPlugins] = useState<{ id: number; name: string; description: string; version: string; author: string; hook_events: string; is_enabled: number; created_at: string }[]>([]);
+  const [hooks, setHooks] = useState<{ event: string; description: string }[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [newName, setNewName] = useState("");
+  const [newDesc, setNewDesc] = useState("");
+  const [newVersion, setNewVersion] = useState("1.0.0");
+  const [newAuthor, setNewAuthor] = useState("");
+  const [selectedHooks, setSelectedHooks] = useState<string[]>(["device.created"]);
+
+  const load = useCallback(async () => {
+    try {
+      const [p, h] = await Promise.all([api.getPlugins(), api.getPluginHooks()]);
+      setPlugins(p.plugins);
+      setHooks(h.hooks);
+    } catch { /* ignore */ }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handleRegister = async () => {
+    if (!newName.trim()) return;
+    try {
+      await api.registerPlugin(newName, newDesc, newVersion, newAuthor, selectedHooks);
+      setNewName(""); setNewDesc(""); setNewVersion("1.0.0"); setNewAuthor("");
+      await load();
+    } catch (e) { alert((e as Error).message); }
+  };
+
+  const handleToggle = async (id: number) => { await api.togglePlugin(id); await load(); };
+  const handleDelete = async (id: number) => { if (confirm("Delete this plugin?")) { await api.deletePlugin(id); await load(); } };
+
+  if (loading) return <div className="flex justify-center py-8"><Loader2 className="w-8 h-8 animate-spin" /></div>;
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader><CardTitle className="text-base flex items-center gap-2"><Package className="w-5 h-5" /> Register Plugin</CardTitle></CardHeader>
+        <CardContent className="space-y-3">
+          <div className="grid grid-cols-2 gap-2">
+            <Input placeholder="Plugin name" value={newName} onChange={e => setNewName(e.target.value)} />
+            <Input placeholder="Author" value={newAuthor} onChange={e => setNewAuthor(e.target.value)} />
+          </div>
+          <Input placeholder="Description" value={newDesc} onChange={e => setNewDesc(e.target.value)} />
+          <div className="flex gap-2 items-end">
+            <div className="flex-1">
+              <Label className="text-xs">Version</Label>
+              <Input value={newVersion} onChange={e => setNewVersion(e.target.value)} />
+            </div>
+            <Button onClick={handleRegister}><Plus className="w-4 h-4 mr-1" /> Register</Button>
+          </div>
+          <div>
+            <Label className="text-xs mb-1 block">Hook Events</Label>
+            <div className="flex flex-wrap gap-1.5">
+              {hooks.map(h => (
+                <Badge key={h.event} variant={selectedHooks.includes(h.event) ? "default" : "outline"}
+                  className="cursor-pointer text-xs" onClick={() => setSelectedHooks(prev =>
+                    prev.includes(h.event) ? prev.filter(x => x !== h.event) : [...prev, h.event]
+                  )} title={h.description}>
+                  {h.event}
+                </Badge>
+              ))}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+      {plugins.length === 0 ? (
+        <Card className="py-8"><CardContent className="text-center text-gray-500">No plugins registered</CardContent></Card>
+      ) : plugins.map(p => (
+        <Card key={p.id}>
+          <CardContent className="pt-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Package className={`w-5 h-5 ${p.is_enabled ? "text-green-500" : "text-gray-400"}`} />
+                <div>
+                  <div className="font-medium text-sm">{p.name} <span className="text-xs text-gray-400">v{p.version}</span></div>
+                  <div className="text-xs text-gray-500">{p.description}</div>
+                  {p.author && <div className="text-xs text-gray-400">by {p.author}</div>}
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <Badge variant={p.is_enabled ? "default" : "secondary"} className="text-xs">
+                  {p.is_enabled ? "Enabled" : "Disabled"}
+                </Badge>
+                <Switch checked={!!p.is_enabled} onCheckedChange={() => handleToggle(p.id)} />
+                <Button variant="ghost" size="sm" onClick={() => handleDelete(p.id)}><Trash2 className="w-3.5 h-3.5 text-red-500" /></Button>
+              </div>
+            </div>
+            <div className="mt-2 flex flex-wrap gap-1">
+              {JSON.parse(p.hook_events || "[]").map((evt: string) => (
+                <Badge key={evt} variant="outline" className="text-[10px]">{evt}</Badge>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  );
+}
+
+// --- Smart Device Recommendations Dialog ---
+function RecommendationsDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const [category, setCategory] = useState("social_media");
+  const [audience, setAudience] = useState("general");
+  const [budget, setBudget] = useState("medium");
+  const [recommendations, setRecommendations] = useState<{ profile_name: string; android_version: string; reason: string; priority: string; config: { ram_mb: number; storage_gb: number; cpus: number } }[]>([]);
+  const [options, setOptions] = useState<{ categories: { id: string; name: string }[]; audiences: { id: string; name: string }[]; budgets: { id: string; name: string }[] } | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    api.getRecommendationOptions().then(setOptions).catch(() => {});
+  }, [open]);
+
+  const handleGenerate = async () => {
+    setLoading(true);
+    try {
+      const r = await api.getRecommendations(category, audience, budget);
+      setRecommendations(r.recommendations);
+    } catch (e) { alert((e as Error).message); }
+    finally { setLoading(false); }
+  };
+
+  const priorityColor = (p: string) => p === "high" ? "text-red-600 bg-red-50" : p === "medium" ? "text-yellow-600 bg-yellow-50" : "text-green-600 bg-green-50";
+
+  return (
+    <Dialog open={open} onOpenChange={v => !v && onClose()}>
+      <DialogContent className="max-w-lg max-h-[85vh] flex flex-col">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2"><Brain className="w-5 h-5 text-purple-500" /> Smart Device Recommendations</DialogTitle>
+          <DialogDescription>AI suggests the best device configs for your app</DialogDescription>
+        </DialogHeader>
+        <div className="flex-1 overflow-y-auto space-y-4">
+          {options && (
+            <div className="grid grid-cols-3 gap-2">
+              <div>
+                <Label className="text-xs">App Category</Label>
+                <Select value={category} onValueChange={setCategory}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>{options.categories.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs">Target Audience</Label>
+                <Select value={audience} onValueChange={setAudience}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>{options.audiences.map(a => <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs">Budget</Label>
+                <Select value={budget} onValueChange={setBudget}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>{options.budgets.map(b => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+            </div>
+          )}
+          <Button onClick={handleGenerate} disabled={loading} className="w-full">
+            {loading ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <Zap className="w-4 h-4 mr-1" />} Generate Recommendations
+          </Button>
+          {recommendations.length > 0 && (
+            <div className="space-y-3">
+              {recommendations.map((rec, i) => (
+                <Card key={i}>
+                  <CardContent className="pt-3 pb-3">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <div className="font-medium text-sm">{rec.profile_name}</div>
+                        <div className="text-xs text-gray-500 mt-1">{rec.reason}</div>
+                        <div className="flex gap-2 mt-2 text-xs text-gray-600">
+                          <span>Android {rec.android_version}</span>
+                          <span>{rec.config.cpus} CPUs</span>
+                          <span>{rec.config.ram_mb}MB RAM</span>
+                          <span>{rec.config.storage_gb}GB Storage</span>
+                        </div>
+                      </div>
+                      <Badge className={`text-xs ${priorityColor(rec.priority)}`}>{rec.priority}</Badge>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// --- Live Collaboration Indicator ---
+function CollabIndicator({ device }: { device: DeviceInfo }) {
+  const [userCount, setUserCount] = useState(0);
+
+  useEffect(() => {
+    const check = async () => {
+      try {
+        const r = await api.getCollabUsers(device.id);
+        setUserCount(r.users);
+      } catch { /* ignore */ }
+    };
+    check();
+    const interval = setInterval(check, 10000);
+    return () => clearInterval(interval);
+  }, [device.id]);
+
+  if (userCount <= 1) return null;
+  return (
+    <Badge variant="secondary" className="gap-1 text-xs">
+      <Users className="w-3 h-3" /> {userCount} users
+    </Badge>
+  );
+}
+
 function MultiDeviceActionBar({ selectedIds, onClearSelection, onRefresh }: {
   selectedIds: Set<string>; onClearSelection: () => void; onRefresh: () => void;
 }) {
@@ -2897,6 +3323,8 @@ function DeviceCard({
   onOpenDebug,
   onOpenAutoTest,
   onOpenAiTest,
+  onOpenSessionRecording,
+  onOpenBranding,
 }: {
   device: DeviceInfo;
   onDelete: (id: string) => void;
@@ -2920,6 +3348,8 @@ function DeviceCard({
   onOpenDebug: () => void;
   onOpenAutoTest: () => void;
   onOpenAiTest: () => void;
+  onOpenSessionRecording: () => void;
+  onOpenBranding: () => void;
 }) {
   return (
     <Card className={`hover:shadow-md transition-shadow ${selected ? "ring-2 ring-blue-500" : ""}`}>
@@ -2997,8 +3427,12 @@ function DeviceCard({
             <Button variant="ghost" size="sm" onClick={onOpenDebug} title="Remote Debug" className="h-7 px-2"><Bug className="w-3.5 h-3.5 text-orange-500" /></Button>
             <Button variant="ghost" size="sm" onClick={onOpenAutoTest} title="Monkey Test" className="h-7 px-2"><TestTube className="w-3.5 h-3.5 text-purple-600" /></Button>
             <Button variant="ghost" size="sm" onClick={onOpenAiTest} title="AI Test Generator" className="h-7 px-2"><Brain className="w-3.5 h-3.5 text-pink-500" /></Button>
+            <Button variant="ghost" size="sm" onClick={onOpenSessionRecording} title="Session Recording" className="h-7 px-2"><Disc className="w-3.5 h-3.5 text-red-500" /></Button>
+            <Button variant="ghost" size="sm" onClick={onOpenBranding} title="Branding & Boot" className="h-7 px-2"><Tag className="w-3.5 h-3.5 text-teal-500" /></Button>
           </div>
         )}
+        {/* Collaboration indicator */}
+        {device.status === "running" && <CollabIndicator device={device} />}
       </CardContent>
     </Card>
   );
@@ -3418,6 +3852,10 @@ function Dashboard() {
   const [autoTestDevice, setAutoTestDevice] = useState<DeviceInfo | null>(null);
   const [aiTestDevice, setAiTestDevice] = useState<DeviceInfo | null>(null);
   const [showScreenshotCompare, setShowScreenshotCompare] = useState(false);
+  // New 5 features
+  const [sessionRecDevice, setSessionRecDevice] = useState<DeviceInfo | null>(null);
+  const [brandingDevice, setBrandingDevice] = useState<DeviceInfo | null>(null);
+  const [showRecommendations, setShowRecommendations] = useState(false);
   // Multi-device selection
   const [selectedDevices, setSelectedDevices] = useState<Set<string>>(new Set());
 
@@ -3535,6 +3973,9 @@ function Dashboard() {
                 <div className="text-sm font-medium text-gray-700 dark:text-gray-300">{runningCount} of {totalCount} devices running</div>
                 <div className="text-xs text-gray-400">Auto-refreshes every 15s</div>
               </div>
+              <Button variant="outline" size="sm" onClick={() => setShowRecommendations(true)} className="h-8 sm:h-9 px-2 sm:px-3 gap-1" title="Smart Recommendations">
+                <Brain className="w-4 h-4 text-purple-500" /> <span className="hidden lg:inline text-xs">AI Recommend</span>
+              </Button>
               <VoiceControlButton onCommand={(cmd) => {
                 const lower = cmd.toLowerCase();
                 if (lower.includes("create") || lower.includes("new device")) {
@@ -3626,6 +4067,11 @@ function Dashboard() {
                 <Webhook className="w-4 h-4" /> <span className="hidden sm:inline">Webhooks</span>
               </TabsTrigger>
             )}
+            {isAdmin && (
+              <TabsTrigger value="plugins" className="gap-1.5">
+                <Package className="w-4 h-4" /> <span className="hidden sm:inline">Plugins</span>
+              </TabsTrigger>
+            )}
           </TabsList>
 
           <TabsContent value="devices" className="mt-4">
@@ -3667,6 +4113,8 @@ function Dashboard() {
                     onOpenDebug={() => setDebugDevice(device)}
                     onOpenAutoTest={() => setAutoTestDevice(device)}
                     onOpenAiTest={() => setAiTestDevice(device)}
+                    onOpenSessionRecording={() => setSessionRecDevice(device)}
+                    onOpenBranding={() => setBrandingDevice(device)}
                   />
                 ))}
               </div>
@@ -3712,6 +4160,12 @@ function Dashboard() {
           {isAdmin && (
             <TabsContent value="webhooks" className="mt-4">
               <WebhooksTab />
+            </TabsContent>
+          )}
+
+          {isAdmin && (
+            <TabsContent value="plugins" className="mt-4">
+              <PluginsTab />
             </TabsContent>
           )}
         </Tabs>
@@ -3774,6 +4228,15 @@ function Dashboard() {
 
       {/* Screenshot Comparison */}
       <ScreenshotCompareDialog devices={devices} open={showScreenshotCompare} onClose={() => setShowScreenshotCompare(false)} />
+
+      {/* Session Recording & Playback */}
+      {sessionRecDevice && <SessionRecordingDialog device={sessionRecDevice} open={!!sessionRecDevice} onClose={() => setSessionRecDevice(null)} />}
+
+      {/* Branding & Boot Animation */}
+      {brandingDevice && <BrandingDialog device={brandingDevice} open={!!brandingDevice} onClose={() => setBrandingDevice(null)} />}
+
+      {/* Smart Recommendations */}
+      <RecommendationsDialog open={showRecommendations} onClose={() => setShowRecommendations(false)} />
 
       {/* Delete Confirmation Dialog */}
       <Dialog open={!!deleteConfirmId} onOpenChange={(v) => !v && setDeleteConfirmId(null)}>

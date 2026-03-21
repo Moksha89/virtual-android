@@ -72,6 +72,14 @@ from app.ssh_manager import (
     get_webview_debug_url,
     take_screenshot_for_comparison,
     run_monkey_test,
+    start_input_recording,
+    stop_input_recording,
+    get_input_recording,
+    replay_input_recording,
+    set_boot_animation,
+    get_device_branding,
+    set_device_branding,
+    get_smart_recommendations,
 )
 from app.auth import (
     hash_password,
@@ -1932,6 +1940,377 @@ async def device_monkey_test(device_id: str, body: dict):
     finally:
         await db.close()
     return {"success": success, "output": output}
+
+
+# --- Session Recording & Playback ---
+
+
+@app.post("/api/devices/{device_id}/input-recording/start")
+async def device_start_input_recording(device_id: str):
+    serial = _get_serial(device_id)
+    ok = await start_input_recording(serial)
+    return {"success": ok, "message": "Input recording started" if ok else "Failed"}
+
+
+@app.post("/api/devices/{device_id}/input-recording/stop")
+async def device_stop_input_recording(device_id: str):
+    serial = _get_serial(device_id)
+    ok = await stop_input_recording(serial)
+    return {"success": ok, "message": "Input recording stopped"}
+
+
+@app.get("/api/devices/{device_id}/input-recording")
+async def device_get_input_recording(device_id: str):
+    serial = _get_serial(device_id)
+    events = await get_input_recording(serial)
+    return {"events": events, "line_count": len(events.strip().split('\n')) if events.strip() else 0}
+
+
+@app.post("/api/devices/{device_id}/input-recording/replay")
+async def device_replay_input_recording(device_id: str, body: dict):
+    serial = _get_serial(device_id)
+    events = body.get("events", "")
+    if not events:
+        raise HTTPException(status_code=400, detail="events data required")
+    ok = await replay_input_recording(serial, events)
+    return {"success": ok, "message": "Replay completed" if ok else "No valid events to replay"}
+
+
+# Stored session recordings in DB
+@app.get("/api/session-recordings")
+async def list_session_recordings():
+    db = await get_db()
+    try:
+        cursor = await db.execute("SELECT * FROM session_recordings ORDER BY created_at DESC LIMIT 50")
+        return {"recordings": [dict(r) for r in await cursor.fetchall()]}
+    finally:
+        await db.close()
+
+
+@app.post("/api/session-recordings")
+async def save_session_recording(body: dict):
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "INSERT INTO session_recordings (name, device_id, events_data, duration_seconds) VALUES (?, ?, ?, ?)",
+            (body.get("name", "Untitled"), body.get("device_id", ""), body.get("events_data", ""), body.get("duration_seconds", 0)),
+        )
+        await db.commit()
+        return {"id": cursor.lastrowid, "message": "Recording saved"}
+    finally:
+        await db.close()
+
+
+@app.get("/api/session-recordings/{recording_id}")
+async def get_session_recording(recording_id: int):
+    db = await get_db()
+    try:
+        cursor = await db.execute("SELECT * FROM session_recordings WHERE id = ?", (recording_id,))
+        row = await cursor.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Recording not found")
+        return dict(row)
+    finally:
+        await db.close()
+
+
+@app.delete("/api/session-recordings/{recording_id}")
+async def delete_session_recording(recording_id: int):
+    db = await get_db()
+    try:
+        await db.execute("DELETE FROM session_recordings WHERE id = ?", (recording_id,))
+        await db.commit()
+        return {"message": "Recording deleted"}
+    finally:
+        await db.close()
+
+
+# --- Custom Boot Animations & Branding ---
+
+
+@app.get("/api/devices/{device_id}/branding")
+async def device_get_branding(device_id: str):
+    serial = _get_serial(device_id)
+    branding = await get_device_branding(serial)
+    return branding
+
+
+@app.post("/api/devices/{device_id}/branding")
+async def device_set_branding(device_id: str, body: dict):
+    serial = _get_serial(device_id)
+    brand = body.get("brand", "")
+    model = body.get("model", "")
+    manufacturer = body.get("manufacturer", "")
+    ok = await set_device_branding(serial, brand, model, manufacturer)
+    return {"success": ok, "message": "Branding updated" if ok else "Failed"}
+
+
+@app.post("/api/devices/{device_id}/boot-animation")
+async def device_set_boot_animation(device_id: str, body: dict):
+    serial = _get_serial(device_id)
+    animation = body.get("animation", "default")
+    ok = await set_boot_animation(serial, animation)
+    return {"success": ok, "message": f"Boot animation set to {animation}" if ok else "Failed"}
+
+
+@app.get("/api/boot-animations")
+async def list_boot_animations():
+    return {"animations": [
+        {"id": "default", "name": "Default Android", "description": "Standard AOSP boot animation"},
+        {"id": "material", "name": "Material Design", "description": "Google Material-style animation"},
+        {"id": "minimal", "name": "Minimal", "description": "Clean, simple boot sequence"},
+        {"id": "corporate", "name": "Corporate", "description": "Professional branding animation"},
+        {"id": "gaming", "name": "Gaming", "description": "Dynamic gaming-style boot"},
+        {"id": "neon", "name": "Neon", "description": "Cyberpunk neon glow animation"},
+        {"id": "nature", "name": "Nature", "description": "Calming nature-themed boot"},
+        {"id": "retro", "name": "Retro", "description": "Classic retro computing style"},
+    ]}
+
+
+# --- Plugin / Extension System ---
+
+# In-memory plugin registry
+_plugins: dict = {}
+
+
+@app.get("/api/plugins")
+async def list_plugins():
+    db = await get_db()
+    try:
+        cursor = await db.execute("SELECT * FROM plugins ORDER BY name")
+        plugins = [dict(r) for r in await cursor.fetchall()]
+        return {"plugins": plugins}
+    finally:
+        await db.close()
+
+
+@app.post("/api/plugins")
+async def register_plugin(body: dict):
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "INSERT INTO plugins (name, description, version, author, hook_events, config_schema, is_enabled) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                body.get("name", ""),
+                body.get("description", ""),
+                body.get("version", "1.0.0"),
+                body.get("author", ""),
+                json.dumps(body.get("hook_events", ["device.created", "device.deleted"])),
+                json.dumps(body.get("config_schema", {})),
+                1,
+            ),
+        )
+        await db.commit()
+        return {"id": cursor.lastrowid, "message": "Plugin registered"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        await db.close()
+
+
+@app.put("/api/plugins/{plugin_id}/toggle")
+async def toggle_plugin(plugin_id: int):
+    db = await get_db()
+    try:
+        await db.execute(
+            "UPDATE plugins SET is_enabled = CASE WHEN is_enabled = 1 THEN 0 ELSE 1 END WHERE id = ?",
+            (plugin_id,),
+        )
+        await db.commit()
+        return {"message": "Plugin toggled"}
+    finally:
+        await db.close()
+
+
+@app.delete("/api/plugins/{plugin_id}")
+async def delete_plugin(plugin_id: int):
+    db = await get_db()
+    try:
+        await db.execute("DELETE FROM plugins WHERE id = ?", (plugin_id,))
+        await db.commit()
+        return {"message": "Plugin deleted"}
+    finally:
+        await db.close()
+
+
+@app.put("/api/plugins/{plugin_id}/config")
+async def update_plugin_config(plugin_id: int, body: dict):
+    db = await get_db()
+    try:
+        await db.execute(
+            "UPDATE plugins SET config_schema = ? WHERE id = ?",
+            (json.dumps(body.get("config", {})), plugin_id),
+        )
+        await db.commit()
+        return {"message": "Plugin config updated"}
+    finally:
+        await db.close()
+
+
+@app.get("/api/plugin-hooks")
+async def list_plugin_hooks():
+    """List all available plugin hook events."""
+    return {"hooks": [
+        {"event": "device.created", "description": "Fired when a new device is created"},
+        {"event": "device.deleted", "description": "Fired when a device is deleted"},
+        {"event": "device.started", "description": "Fired when a device starts"},
+        {"event": "device.stopped", "description": "Fired when a device stops"},
+        {"event": "device.error", "description": "Fired when a device encounters an error"},
+        {"event": "app.installed", "description": "Fired when an APK is installed"},
+        {"event": "app.uninstalled", "description": "Fired when an app is uninstalled"},
+        {"event": "test.completed", "description": "Fired when a test run completes"},
+        {"event": "snapshot.created", "description": "Fired when a snapshot is created"},
+        {"event": "user.login", "description": "Fired when a user logs in"},
+        {"event": "schedule.triggered", "description": "Fired when a scheduled event triggers"},
+    ]}
+
+
+# --- Smart Device Recommendations ---
+
+
+@app.post("/api/recommendations")
+async def device_recommendations(body: dict):
+    category = body.get("app_category", "social_media")
+    audience = body.get("target_audience", "general")
+    budget = body.get("budget", "medium")
+    recs = get_smart_recommendations(category, audience, budget)
+    return {"recommendations": recs}
+
+
+@app.get("/api/recommendation-options")
+async def recommendation_options():
+    return {
+        "categories": [
+            {"id": "social_media", "name": "Social Media", "icon": "message-square"},
+            {"id": "gaming", "name": "Gaming", "icon": "gamepad"},
+            {"id": "enterprise", "name": "Enterprise / Business", "icon": "briefcase"},
+            {"id": "ecommerce", "name": "E-Commerce", "icon": "shopping-cart"},
+            {"id": "media", "name": "Media / Streaming", "icon": "play"},
+        ],
+        "audiences": [
+            {"id": "general", "name": "General Users"},
+            {"id": "power_users", "name": "Power Users"},
+            {"id": "budget", "name": "Budget / Emerging Markets"},
+            {"id": "enterprise", "name": "Enterprise / Corporate"},
+            {"id": "gaming", "name": "Gamers"},
+            {"id": "developers", "name": "Developers"},
+        ],
+        "budgets": [
+            {"id": "low", "name": "Low (1-2 devices)"},
+            {"id": "medium", "name": "Medium (3-5 devices)"},
+            {"id": "high", "name": "High (6+ devices)"},
+        ],
+    }
+
+
+# --- Live Collaboration ---
+
+# WebSocket-based collaboration: multiple users can view/control the same device
+_collab_rooms: dict[str, list[WebSocket]] = {}
+_collab_cursors: dict[str, dict[str, dict]] = {}  # room -> {user_id: {x, y, color, name}}
+
+
+@app.websocket("/ws/collab/{device_id}")
+async def ws_collaboration(websocket: WebSocket, device_id: str):
+    """WebSocket for live collaboration on a device."""
+    await websocket.accept()
+    room_id = device_id
+    if room_id not in _collab_rooms:
+        _collab_rooms[room_id] = []
+        _collab_cursors[room_id] = {}
+    _collab_rooms[room_id].append(websocket)
+
+    # Generate a color for this user
+    import random
+    colors = ["#ef4444", "#f97316", "#eab308", "#22c55e", "#3b82f6", "#8b5cf6", "#ec4899"]
+    user_color = random.choice(colors)
+    user_id = f"user_{id(websocket)}"
+
+    try:
+        # Notify others that a new user joined
+        join_msg = json.dumps({"type": "user_joined", "user_id": user_id, "color": user_color, "count": len(_collab_rooms[room_id])})
+        for ws in _collab_rooms[room_id]:
+            if ws != websocket:
+                try:
+                    await ws.send_text(join_msg)
+                except Exception:
+                    pass
+
+        # Send current user list to new user
+        await websocket.send_text(json.dumps({
+            "type": "init",
+            "user_id": user_id,
+            "color": user_color,
+            "users": len(_collab_rooms[room_id]),
+            "cursors": _collab_cursors.get(room_id, {}),
+        }))
+
+        while True:
+            data = await websocket.receive_text()
+            msg = json.loads(data)
+
+            if msg.get("type") == "cursor_move":
+                _collab_cursors.setdefault(room_id, {})[user_id] = {
+                    "x": msg.get("x", 0),
+                    "y": msg.get("y", 0),
+                    "color": user_color,
+                    "name": msg.get("name", user_id),
+                }
+                # Broadcast cursor to others
+                broadcast = json.dumps({"type": "cursor_update", "user_id": user_id, "x": msg.get("x", 0), "y": msg.get("y", 0), "color": user_color, "name": msg.get("name", user_id)})
+                for ws in _collab_rooms[room_id]:
+                    if ws != websocket:
+                        try:
+                            await ws.send_text(broadcast)
+                        except Exception:
+                            pass
+
+            elif msg.get("type") == "action":
+                # Broadcast actions (clicks, keystrokes) to others
+                broadcast = json.dumps({"type": "action", "user_id": user_id, "color": user_color, "action": msg.get("action", ""), "params": msg.get("params", {})})
+                for ws in _collab_rooms[room_id]:
+                    if ws != websocket:
+                        try:
+                            await ws.send_text(broadcast)
+                        except Exception:
+                            pass
+
+            elif msg.get("type") == "chat":
+                broadcast = json.dumps({"type": "chat", "user_id": user_id, "color": user_color, "name": msg.get("name", user_id), "message": msg.get("message", "")})
+                for ws in _collab_rooms[room_id]:
+                    try:
+                        await ws.send_text(broadcast)
+                    except Exception:
+                        pass
+
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        pass
+    finally:
+        if room_id in _collab_rooms:
+            _collab_rooms[room_id] = [ws for ws in _collab_rooms[room_id] if ws != websocket]
+            if user_id in _collab_cursors.get(room_id, {}):
+                del _collab_cursors[room_id][user_id]
+            # Notify others
+            leave_msg = json.dumps({"type": "user_left", "user_id": user_id, "count": len(_collab_rooms[room_id])})
+            for ws in _collab_rooms[room_id]:
+                try:
+                    await ws.send_text(leave_msg)
+                except Exception:
+                    pass
+            if not _collab_rooms[room_id]:
+                del _collab_rooms[room_id]
+                if room_id in _collab_cursors:
+                    del _collab_cursors[room_id]
+
+
+@app.get("/api/collab/{device_id}/users")
+async def collab_users(device_id: str):
+    room_id = device_id
+    count = len(_collab_rooms.get(room_id, []))
+    cursors = _collab_cursors.get(room_id, {})
+    return {"users": count, "cursors": cursors}
 
 
 # --- Server Status ---

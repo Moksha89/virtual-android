@@ -941,3 +941,178 @@ async def run_monkey_test(serial: str, package: str, event_count: int = 500) -> 
     output = stdout + stderr
     success = "Events injected" in output and "CRASH" not in output
     return success, output
+
+
+# --- Session Recording (input events capture) ---
+
+async def start_input_recording(serial: str) -> bool:
+    """Start recording input events from the device."""
+    cmd = f"adb -s {serial} shell 'nohup getevent -t /dev/input/event0 > /sdcard/input_recording.txt 2>&1 &'"
+    stdout, stderr, rc = await run_ssh_command(cmd, timeout=10.0)
+    return rc == 0
+
+
+async def stop_input_recording(serial: str) -> bool:
+    """Stop recording input events."""
+    cmd = f"adb -s {serial} shell 'pkill -f getevent || true'"
+    stdout, stderr, rc = await run_ssh_command(cmd, timeout=10.0)
+    return True
+
+
+async def get_input_recording(serial: str) -> str:
+    """Get the recorded input events as text."""
+    cmd = f"adb -s {serial} shell cat /sdcard/input_recording.txt 2>/dev/null | tail -500"
+    stdout, stderr, rc = await run_ssh_command(cmd, timeout=10.0)
+    return stdout
+
+
+async def replay_input_recording(serial: str, events_text: str) -> bool:
+    """Replay recorded input events on the device."""
+    # Parse getevent format and replay with sendevent
+    lines = events_text.strip().split('\n')
+    replay_cmds = []
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith('#'):
+            continue
+        # getevent format: [timestamp] /dev/input/eventX: type code value
+        parts = line.split()
+        if len(parts) >= 4:
+            try:
+                dev = parts[1].rstrip(':') if ':' in parts[1] else '/dev/input/event0'
+                etype = int(parts[-3], 16) if len(parts) >= 4 else 0
+                ecode = int(parts[-2], 16) if len(parts) >= 4 else 0
+                evalue = int(parts[-1], 16) if len(parts) >= 4 else 0
+                replay_cmds.append(f"sendevent {dev} {etype} {ecode} {evalue}")
+            except (ValueError, IndexError):
+                continue
+    if not replay_cmds:
+        return False
+    # Execute in batches
+    batch_size = 50
+    for i in range(0, len(replay_cmds), batch_size):
+        batch = replay_cmds[i:i+batch_size]
+        cmd_str = " && ".join(batch)
+        cmd = f"adb -s {serial} shell '{cmd_str}'"
+        await run_ssh_command(cmd, timeout=30.0)
+        await asyncio.sleep(0.1)
+    return True
+
+
+# --- Custom Boot Animation ---
+
+async def set_boot_animation(serial: str, animation_name: str) -> bool:
+    """Set a custom boot animation on the device."""
+    # Create a simple boot animation based on the name/brand
+    cmd = f"""adb -s {serial} shell 'su -c "
+        mkdir -p /data/local/bootanimation
+        echo \"Custom boot: {animation_name}\" > /data/local/bootanimation/desc.txt
+        setprop persist.sys.bootanim.custom {animation_name}
+    "'"""
+    stdout, stderr, rc = await run_ssh_command(cmd, timeout=15.0)
+    return rc == 0
+
+
+async def get_device_branding(serial: str) -> dict:
+    """Get current device branding info."""
+    cmd = f"""adb -s {serial} shell '
+        echo "model=$(getprop ro.product.model)"
+        echo "brand=$(getprop ro.product.brand)"
+        echo "manufacturer=$(getprop ro.product.manufacturer)"
+        echo "device=$(getprop ro.product.device)"
+        echo "bootanim=$(getprop persist.sys.bootanim.custom)"
+    '"""
+    stdout, _, _ = await run_ssh_command(cmd, timeout=10.0)
+    result = {}
+    for line in stdout.strip().split('\n'):
+        if '=' in line:
+            k, v = line.split('=', 1)
+            result[k.strip()] = v.strip()
+    return result
+
+
+async def set_device_branding(serial: str, brand: str, model: str, manufacturer: str) -> bool:
+    """Set device branding properties."""
+    cmd = f"""adb -s {serial} shell 'su -c "
+        setprop ro.product.brand {brand}
+        setprop ro.product.model {model}
+        setprop ro.product.manufacturer {manufacturer}
+    "'"""
+    stdout, stderr, rc = await run_ssh_command(cmd, timeout=15.0)
+    return rc == 0
+
+
+# --- Smart Device Recommendations ---
+
+def get_smart_recommendations(app_category: str, target_audience: str, budget: str) -> list[dict]:
+    """Generate smart device configuration recommendations based on criteria."""
+    recommendations = []
+
+    # Base configs by audience
+    audience_configs = {
+        "general": {"ram_mb": 4096, "storage_gb": 64, "cpus": 4},
+        "power_users": {"ram_mb": 8192, "storage_gb": 128, "cpus": 8},
+        "budget": {"ram_mb": 2048, "storage_gb": 32, "cpus": 2},
+        "enterprise": {"ram_mb": 6144, "storage_gb": 128, "cpus": 6},
+        "gaming": {"ram_mb": 12288, "storage_gb": 256, "cpus": 8},
+        "developers": {"ram_mb": 8192, "storage_gb": 128, "cpus": 8},
+    }
+
+    # Category-specific adjustments
+    category_profiles = {
+        "social_media": [
+            {"name": "Samsung Galaxy S24 Ultra", "reason": "Most popular flagship for social apps", "android": "14"},
+            {"name": "Google Pixel 8", "reason": "Pure Android experience, great camera APIs", "android": "14"},
+            {"name": "Samsung Galaxy A54", "reason": "Mid-range leader, huge market share", "android": "14"},
+        ],
+        "gaming": [
+            {"name": "Samsung Galaxy S24 Ultra", "reason": "Top GPU performance", "android": "14"},
+            {"name": "OnePlus 12", "reason": "High refresh rate, gaming optimized", "android": "14"},
+            {"name": "Google Pixel 9 Pro", "reason": "Smooth performance, latest Android", "android": "15"},
+        ],
+        "enterprise": [
+            {"name": "Samsung Galaxy S24 Ultra", "reason": "Samsung Knox security", "android": "14"},
+            {"name": "Google Pixel 8", "reason": "Guaranteed security updates", "android": "14"},
+            {"name": "Samsung Galaxy A54", "reason": "Cost-effective fleet device", "android": "14"},
+        ],
+        "ecommerce": [
+            {"name": "Samsung Galaxy S24 Ultra", "reason": "Large screen for product browsing", "android": "14"},
+            {"name": "Google Pixel 8", "reason": "Standard Android for testing", "android": "14"},
+            {"name": "Low-End Device", "reason": "Test performance on budget devices", "android": "13"},
+        ],
+        "media": [
+            {"name": "Samsung Galaxy Tab S9", "reason": "Tablet testing for media consumption", "android": "14"},
+            {"name": "Google Pixel 9 Pro", "reason": "High-res display for media apps", "android": "15"},
+            {"name": "Samsung Galaxy S24 Ultra", "reason": "Large screen, HDR support", "android": "14"},
+        ],
+    }
+
+    base_config = audience_configs.get(target_audience, audience_configs["general"])
+    profiles = category_profiles.get(app_category, category_profiles["social_media"])
+
+    for i, profile in enumerate(profiles):
+        config = base_config.copy()
+        # Adjust based on priority
+        if budget == "low" and i > 0:
+            config["ram_mb"] = max(2048, config["ram_mb"] // 2)
+            config["storage_gb"] = max(32, config["storage_gb"] // 2)
+            config["cpus"] = max(2, config["cpus"] // 2)
+
+        recommendations.append({
+            "profile_name": profile["name"],
+            "android_version": profile["android"],
+            "reason": profile["reason"],
+            "priority": ["high", "medium", "low"][i] if i < 3 else "low",
+            "config": config,
+        })
+
+    # Add version-specific recommendations
+    recommendations.append({
+        "profile_name": "Low-End Device",
+        "android_version": "13",
+        "reason": "Always test on low-end devices to catch performance issues",
+        "priority": "medium",
+        "config": {"ram_mb": 2048, "storage_gb": 32, "cpus": 2},
+    })
+
+    return recommendations

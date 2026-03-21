@@ -446,6 +446,62 @@ export const api = {
       method: "POST", body: JSON.stringify({ package: packageName, event_count: eventCount }),
     }),
 
+  // Session Recording & Playback
+  startInputRecording: (deviceId: string) =>
+    fetchApi<{ success: boolean; message: string }>(`/api/devices/${deviceId}/input-recording/start`, { method: "POST" }),
+  stopInputRecording: (deviceId: string) =>
+    fetchApi<{ success: boolean; message: string }>(`/api/devices/${deviceId}/input-recording/stop`, { method: "POST" }),
+  getInputRecording: (deviceId: string) =>
+    fetchApi<{ events: string; line_count: number }>(`/api/devices/${deviceId}/input-recording`),
+  replayInputRecording: (deviceId: string, events: string) =>
+    fetchApi<{ success: boolean; message: string }>(`/api/devices/${deviceId}/input-recording/replay`, { method: "POST", body: JSON.stringify({ events }) }),
+  getSessionRecordings: () =>
+    fetchApi<{ recordings: { id: number; name: string; device_id: string; duration_seconds: number; created_at: string }[] }>("/api/session-recordings"),
+  saveSessionRecording: (name: string, deviceId: string, eventsData: string, durationSeconds: number) =>
+    fetchApi("/api/session-recordings", { method: "POST", body: JSON.stringify({ name, device_id: deviceId, events_data: eventsData, duration_seconds: durationSeconds }) }),
+  getSessionRecording: (id: number) =>
+    fetchApi<{ id: number; name: string; device_id: string; events_data: string; duration_seconds: number; created_at: string }>(`/api/session-recordings/${id}`),
+  deleteSessionRecording: (id: number) =>
+    fetchApi(`/api/session-recordings/${id}`, { method: "DELETE" }),
+
+  // Custom Boot Animations & Branding
+  getDeviceBranding: (deviceId: string) =>
+    fetchApi<{ model: string; brand: string; manufacturer: string; device: string; bootanim: string }>(`/api/devices/${deviceId}/branding`),
+  setDeviceBranding: (deviceId: string, brand: string, model: string, manufacturer: string) =>
+    fetchApi(`/api/devices/${deviceId}/branding`, { method: "POST", body: JSON.stringify({ brand, model, manufacturer }) }),
+  setBootAnimation: (deviceId: string, animation: string) =>
+    fetchApi(`/api/devices/${deviceId}/boot-animation`, { method: "POST", body: JSON.stringify({ animation }) }),
+  getBootAnimations: () =>
+    fetchApi<{ animations: { id: string; name: string; description: string }[] }>("/api/boot-animations"),
+
+  // Plugin / Extension System
+  getPlugins: () =>
+    fetchApi<{ plugins: { id: number; name: string; description: string; version: string; author: string; hook_events: string; config_schema: string; is_enabled: number; created_at: string }[] }>("/api/plugins"),
+  registerPlugin: (name: string, description: string, version: string, author: string, hookEvents: string[]) =>
+    fetchApi("/api/plugins", { method: "POST", body: JSON.stringify({ name, description, version, author, hook_events: hookEvents }) }),
+  togglePlugin: (id: number) => fetchApi(`/api/plugins/${id}/toggle`, { method: "PUT" }),
+  deletePlugin: (id: number) => fetchApi(`/api/plugins/${id}`, { method: "DELETE" }),
+  updatePluginConfig: (id: number, config: Record<string, unknown>) =>
+    fetchApi(`/api/plugins/${id}/config`, { method: "PUT", body: JSON.stringify({ config }) }),
+  getPluginHooks: () =>
+    fetchApi<{ hooks: { event: string; description: string }[] }>("/api/plugin-hooks"),
+
+  // Smart Device Recommendations
+  getRecommendations: (appCategory: string, targetAudience: string, budget: string) =>
+    fetchApi<{ recommendations: { profile_name: string; android_version: string; reason: string; priority: string; config: { ram_mb: number; storage_gb: number; cpus: number } }[] }>(
+      "/api/recommendations", { method: "POST", body: JSON.stringify({ app_category: appCategory, target_audience: targetAudience, budget }) }
+    ),
+  getRecommendationOptions: () =>
+    fetchApi<{
+      categories: { id: string; name: string; icon: string }[];
+      audiences: { id: string; name: string }[];
+      budgets: { id: string; name: string }[];
+    }>("/api/recommendation-options"),
+
+  // Live Collaboration
+  getCollabUsers: (deviceId: string) =>
+    fetchApi<{ users: number; cursors: Record<string, { x: number; y: number; color: string; name: string }> }>(`/api/collab/${deviceId}/users`),
+
   // Server
   getServerStatus: () => fetchApi<ServerStatus>("/api/server/status"),
   getAndroidVersions: () => fetchApi<AndroidVersion[]>("/api/android-versions"),

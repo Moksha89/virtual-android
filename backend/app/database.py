@@ -159,6 +159,27 @@ async def init_db():
                 screenshot_b TEXT,
                 created_at TEXT NOT NULL DEFAULT (datetime('now'))
             );
+
+            CREATE TABLE IF NOT EXISTS session_recordings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL DEFAULT 'Untitled',
+                device_id TEXT NOT NULL,
+                events_data TEXT DEFAULT '',
+                duration_seconds INTEGER DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+
+            CREATE TABLE IF NOT EXISTS plugins (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT UNIQUE NOT NULL,
+                description TEXT DEFAULT '',
+                version TEXT DEFAULT '1.0.0',
+                author TEXT DEFAULT '',
+                hook_events TEXT DEFAULT '[]',
+                config_schema TEXT DEFAULT '{}',
+                is_enabled INTEGER DEFAULT 1,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
         """)
         await db.commit()
 
