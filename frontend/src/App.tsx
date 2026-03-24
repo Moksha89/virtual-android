@@ -494,7 +494,7 @@ function ScreenViewerDialog({
   open: boolean;
   onClose: () => void;
 }) {
-  const screenUrl = `https://${device.ip}:${device.webrtc_port}`;
+  const screenUrl = `https://${device.ip}:${device.webrtc_port}/client.html?deviceId=cvd-${device.instance_id}`;
   const [sending, setSending] = useState(false);
   const [textInput, setTextInput] = useState("");
   const [showKeyboard, setShowKeyboard] = useState(false);
@@ -612,13 +612,20 @@ function ScreenViewerDialog({
               />
             </div>
           ) : (
-            <iframe
-              src={screenUrl}
-              className="w-full h-full border-0"
-              style={{ minHeight: "250px", height: "calc(98vh - 220px)" }}
-              allow="autoplay; clipboard-write; camera; microphone"
-              title={`${device.name} Screen`}
-            />
+            <div className="w-full h-full flex flex-col" style={{ minHeight: "250px", height: "calc(98vh - 220px)" }}>
+              <iframe
+                src={screenUrl}
+                className="w-full flex-1 border-0"
+                allow="autoplay; clipboard-write; camera; microphone"
+                title={`${device.name} Screen`}
+              />
+              <div className="bg-yellow-50 border-t border-yellow-200 px-3 py-1.5 text-xs text-yellow-800 flex items-center justify-between shrink-0">
+                <span>Screen not loading? You may need to accept the SSL certificate first.</span>
+                <a href={screenUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline font-medium ml-2 whitespace-nowrap">
+                  Open in new tab
+                </a>
+              </div>
+            </div>
           )}
         </div>
 

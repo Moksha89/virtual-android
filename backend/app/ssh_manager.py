@@ -508,22 +508,23 @@ SERIAL="{serial}"
 GAPPS_DIR="/home/administrator/gapps"
 GAPPS_ZIP="$GAPPS_DIR/MindTheGapps-14.0.0-x86_64.zip"
 
-# Check if GApps zip exists, download if not
-if [ ! -f "$GAPPS_ZIP" ]; then
-    mkdir -p "$GAPPS_DIR"
-    echo "GAPPS_STATUS:downloading"
-    wget -q "https://github.com/MustardChef/MindTheGapps-14.0.0-x86_64/releases/download/MindTheGapps-14.0.0-x86_64-20250202_012724/MindTheGapps-14.0.0-x86_64-20250202_012724.zip" -O "$GAPPS_ZIP" 2>/dev/null || true
-fi
-
-if [ ! -f "$GAPPS_ZIP" ]; then
-    echo "GAPPS_STATUS:no_zip"
-    exit 1
-fi
-
-# Extract if not already extracted
+# Check if GApps are already extracted
 if [ ! -d "$GAPPS_DIR/system" ]; then
-    cd "$GAPPS_DIR"
-    unzip -o "$GAPPS_ZIP" 2>/dev/null || true
+    mkdir -p "$GAPPS_DIR"
+    # Try to extract from cached zip
+    if [ -f "$GAPPS_ZIP" ]; then
+        cd "$GAPPS_DIR"
+        unzip -o "$GAPPS_ZIP" 2>/dev/null || true
+    else
+        echo "GAPPS_STATUS:no_zip"
+        exit 1
+    fi
+fi
+
+# Verify extracted files exist
+if [ ! -d "$GAPPS_DIR/system/product" ] && [ ! -d "$GAPPS_DIR/system/priv-app" ]; then
+    echo "GAPPS_STATUS:no_extracted_files"
+    exit 1
 fi
 
 # Check if device is available
