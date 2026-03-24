@@ -141,3 +141,17 @@ class UpdateUserRequest(BaseModel):
 class AssignDeviceRequest(BaseModel):
     user_id: int
     device_id: str
+
+
+# --- Device Control Models ---
+
+class DeviceControlRequest(BaseModel):
+    """Request to send a control command to a device."""
+    action: str  # keyevent, text, tap, swipe, shell
+    params: dict = {}
+
+
+class DeviceScreenshotResponse(BaseModel):
+    """Response containing a base64-encoded screenshot."""
+    image_base64: str
+    format: str = "png"
